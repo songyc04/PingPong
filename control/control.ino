@@ -1,3 +1,6 @@
+// board URL:
+// https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
 #include <WiFi.h>
 
 // Wi-Fi 및 서버 환경 설정
