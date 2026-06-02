@@ -43,6 +43,12 @@ def socket_server_thread():
             if not data:
                break
                
+            # [에코 기능] 수신한 바이트 데이터를 그대로 클라이언트(ESP32)에 재전송
+            try:
+               client_socket.sendall(data)
+            except Exception as send_error:
+               print(f"[네트워크] 에코 데이터 전송 실패: {send_error}")
+               
             raw_msg = data.decode("utf-8").strip()
             
             with command_lock:
@@ -176,6 +182,9 @@ def run_game():
                UI_state = "PAUSE"
          elif current_cmd == "END":
             UI_state = "MAIN_MENU"
+         elif current_cmd == "SET":
+            # [기능 추가] SET 명령 수신 시 어떤 화면에서든 설정창으로 이동
+            UI_state = "SETTINGS"
 
       # --- [1] 메인 메뉴 화면 처리 ---
       if UI_state == "MAIN_MENU":
