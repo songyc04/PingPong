@@ -4,9 +4,9 @@
 #include <WiFi.h>
 
 // Wi-Fi 및 서버 환경 설정
-const char* ssid     = "Metabus2.4";     
+const char* ssid     = "fusion";     
 const char* password = "12345678"; 
-const char* serverIP = "192.168.0.188";        // PC의 IPv4 주소 입력
+const char* serverIP = "192.168.0.114";        // PC의 IPv4 주소 입력
 const uint16_t port  = 10001;                // 포트 번호 변경
 
 WiFiClient client;
