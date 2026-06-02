@@ -17,17 +17,18 @@ def start_server():
       while True:
          data = client_socket.recv(1024)
          if not data:
-             print("[-] ESP32와 연결이 끊어졌습니다.")
-             break
+            print("[-] ESP32와 연결이 끊어졌습니다.")
+            break
          message = data.decode('utf-8').strip()
          print(f"[수신] ESP32 -> PC: {message}")
          if message == "TCP/IP":
-             response = "OK"
-             client_socket.sendall((response + "\n").encode('utf-8'))
-             print(f"[송신] PC -> ESP32: {response}")
+            response = "OK"
+            client_socket.sendall((response + "\n").encode('utf-8'))
+            print(f"[송신] PC -> ESP32: {response}")
          else:
-             response = "UNKNOWN"
-             client_socket.sendall((response + "\n").encode('utf-8'))
+            response = "ANOTHER"
+            client_socket.sendall((response + "\n").encode('utf-8'))
+            print(f"[송신] PC -> ESP32: {response}")
    except Exception as e:
       print(f"[에러] 발생: {e}")
    finally:
