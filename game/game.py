@@ -3,6 +3,14 @@ import sys
 import socket
 import threading
 
+# --- 색상값 정의 ---
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 50, 50)
+BLUE = (50, 50, 255)
+GRAY = (100, 100, 100)
+GREEN = (50, 200, 50)
+
 # --- 전역 게임 상태 및 네트워크 데이터 정의 ---
 UI_state = "MAIN_MENU"
 network_command = ""
@@ -12,7 +20,7 @@ command_lock = threading.Lock()
 def socket_server_thread():
    global network_command
    SERVER_IP = "0.0.0.0"
-   SERVER_PORT = 10002
+   SERVER_PORT = 10001
 
    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -56,13 +64,6 @@ def run_game():
    screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.NOFRAME | pygame.HWSURFACE | pygame.DOUBLEBUF)
    pygame.display.set_caption("ESP32 하키 핑퐁 - 완벽한 4면 충돌")
    clock = pygame.time.Clock()
-   
-   WHITE = (255, 255, 255)
-   BLACK = (0, 0, 0)
-   RED = (255, 50, 50)
-   BLUE = (50, 50, 255)
-   GRAY = (100, 100, 100)
-   GREEN = (50, 200, 50)
 
    paddle_width = int(WIDTH * 0.005)
    paddle_height = int(HEIGHT * 0.12)

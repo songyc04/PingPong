@@ -1,7 +1,7 @@
 import socket
 
 HOST = '0.0.0.0'  
-PORT = 10001  # 포트 번호 변경
+PORT = 10001 # 포트 번호 변경
 
 def start_server():
    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
