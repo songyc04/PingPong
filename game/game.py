@@ -96,7 +96,7 @@ def run_game():
    goal_height = int(HEIGHT * 0.3)
    ball_size = int(HEIGHT * 0.03)
    
-   paddle_speed = int(HEIGHT * 0.012)
+   paddle_speed = int(HEIGHT * 0.02)
    base_ball_speed_x = int(WIDTH * 0.008)
    base_ball_speed_y = int(HEIGHT * 0.008)
    
@@ -422,7 +422,7 @@ def run_game():
          screen.blit(back_txt, (btn_back_rect.centerx - back_txt.get_width() // 2, btn_back_rect.centery - back_txt.get_height() // 2))
 
          if not popup_type:
-            cursor_text = font.render("👉", True, YELLOW)
+            cursor_text = font.render("->", True, YELLOW)
             if current_setting_index == 3:
                cursor_x = btn_back_rect.left - int(WIDTH * 0.03)
                cursor_y = setting_y_positions[3] + (btn_back_rect.height // 2) - (cursor_text.get_height() // 2)
