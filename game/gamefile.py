@@ -36,7 +36,7 @@ popup_sub_index = 0
 def socket_server_thread():
    global network_command
    SERVER_IP = "0.0.0.0"
-   SERVER_PORT = 10002
+   SERVER_PORT = 10001
 
    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
