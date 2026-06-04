@@ -39,23 +39,22 @@ popup_sub_index = 0
 
 def parse_joystick(raw_msg):
    """
-   [극초고속 최소 지연 프로토콜] “정수,정수,정수,정수” (P1_X, P1_Y, P2_X, P2_Y)
+   [UDP 매핑 알고리즘] “정수,정수,정수,정수”
    중립 범위: 2630 ~ 2750, 최솟값 0, 최댓값 4095
    """
    global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
    
    try:
-      # 단 한 번의 분할 연산으로 4개의 데이터 추출
       data = raw_msg.split(',')
       if len(data) < 4: 
-         return  # 패킷 누락 시 예외 처리 마감
+         return
          
       p1_x = int(data[0])
       p1_y = int(data[1])
       p2_x = int(data[2])
       p2_y = int(data[3])
       
-      # --- P1 조이스틱 계산 ---
+      # --- P1 조이스틱 정규화 ---
       if 2630 <= p1_x <= 2750:   p1_jx = 0.0
       elif p1_x < 2630:          p1_jx = (p1_x - 2630) / 2630.0
       else:                      p1_jx = (p1_x - 2750) / (4095.0 - 2750.0)
@@ -64,7 +63,7 @@ def parse_joystick(raw_msg):
       elif p1_y < 2630:          p1_jy = (p1_y - 2630) / 2630.0
       else:                      p1_jy = (p1_y - 2750) / (4095.0 - 2750.0)
 
-      # --- P2 조이스틱 계산 ---
+      # --- P2 조이스틱 정규화 ---
       if 2630 <= p2_x <= 2750:   p2_jx = 0.0
       elif p2_x < 2630:          p2_jx = (p2_x - 2630) / 2630.0
       else:                      p2_jx = (p2_x - 2750) / (4095.0 - 2750.0)
@@ -73,85 +72,54 @@ def parse_joystick(raw_msg):
       elif p2_y < 2630:          p2_jy = (p2_y - 2630) / 2630.0
       else:                      p2_jy = (p2_y - 2750) / (4095.0 - 2750.0)
 
-      # 전역 변수에 한 번에 기록 (Lock 점유 시간 최소화)
+      # 변수 업데이트
       p1_joy_x, p1_joy_y = p1_jx, p1_jy
       p2_joy_x, p2_joy_y = p2_jx, p2_jy
             
    except Exception:
       pass
 
-def socket_server_thread():
+def udp_server_thread():
+   """
+   UDP 수신 전용 스레드
+   지연 시간(Latency)이 사실상 제로에 가깝게 작동합니다.
+   """
    global network_command
    SERVER_IP = "0.0.0.0"
    SERVER_PORT = 10001
 
-   server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-   server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+   # SOCK_DGRAM 으로 변경하여 UDP 소켓 생성
+   udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
    
    try:
-      server_socket.bind((SERVER_IP, SERVER_PORT))
-      server_socket.listen(1)
-      print(f"[네트워크] 소켓 서버가 {SERVER_PORT} 포트에서 대기 중입니다...")
+      udp_socket.bind((SERVER_IP, SERVER_PORT))
+      print(f"[네트워크] UDP 서버가 {SERVER_PORT} 포트에서 개방되었습니다.")
    except Exception as e:
-      print(f"[네트워크] 서버 바인딩 실패: {e}")
+      print(f"[네트워크] UDP 서버 바인딩 실패: {e}")
       return
 
    while True:
       try:
-         client_socket, addr = server_socket.accept()
-         print(f"[네트워크] 클라이언트 연결됨: {addr}")
-         
-         # 딜레이 최소화를 위해 TCP_NODELAY(Nagle 알고리즘 비활성화) 설정
-         client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-         
-         buffer = "" # 데이터 조각을 모으기 위한 스트림 버퍼
-         
-         while True:
-            data = client_socket.recv(4096) # 버퍼 크기를 넉넉히 지정
-            if not data:
-               break
-               
-            try:
-               client_socket.sendall(data) # 에코 전송
-            except Exception:
-               pass
-               
-            # 들어온 데이터를 기존 버퍼 문자열에 추가
-            buffer += data.decode("utf-8")
+         # UDP는 accept() 과정 없이 바로 데이터를 패킷 단위로 수신합니다.
+         data, addr = udp_socket.recvfrom(1024)
+         if not data:
+            continue
             
-            # 개행 문자(\n)가 포함되어 있다면 완전한 패킷이 들어왔다는 뜻
-            if "\n" in buffer:
-               # 문장 단위로 쪼갬
-               lines = buffer.split("\n")
+         raw_msg = data.decode("utf-8").strip()
+         
+         # 쉼표(,) 개수로 데이터 타입 식별
+         if raw_msg.count(',') >= 3:
+            with command_lock:
+               parse_joystick(raw_msg)
+         else:
+            # 일반 명령 문자열 처리 (SRT, STP, UP, DN, CLK 등)
+            with command_lock:
+               network_command = raw_msg
                
-               # 처리하지 못한 마지막 미완성 조각은 다시 버퍼에 저장
-               buffer = lines[-1]
-               
-               # 완성된 문장들(lines[:-1]) 중에서 가장 마지막(최신) 데이터 찾기
-               valid_lines = [l.strip() for l in lines[:-1] if l.strip()]
-               
-               if not valid_lines:
-                  continue
-                  
-               # 뭉쳐서 들어온 데이터 중 '가장 최신 패킷' 하나만 뽑아서 처리 (중요!)
-               # 이전 과거 패킷들을 다 처리하느라 연산이 밀리는 병목을 방지합니다.
-               latest_msg = valid_lines[-1]
-               
-               if latest_msg.count(',') >= 3:
-                  with command_lock:
-                     print(f"Joysticks: {latest_msg}")
-                     parse_joystick(latest_msg)
-               else:
-                  # 조이스틱이 아닌 일반 명령 처리 (SRT, STP 등)
-                  with command_lock:
-                     network_command = latest_msg
-               
-         client_socket.close()
-         print("[네트워크] 클라이언트 연결 종료")
       except Exception as e:
-         print(f"[네트워크] 통신 오류: {e}")
+         print(f"[네트워크] UDP 수신 오류: {e}")
          break
-      
+
 def run_game():
    global UI_state, network_command, current_setting_index, popup_type, popup_sub_index
    global sound_enabled, p1_color_idx, p2_color_idx
@@ -163,7 +131,7 @@ def run_game():
    WIDTH, HEIGHT = info.current_w, info.current_h
    
    screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.NOFRAME | pygame.HWSURFACE | pygame.DOUBLEBUF)
-   pygame.display.set_caption("ESP32 하키 핑퐁 - 미니멀 로우 레이턴시")
+   pygame.display.set_caption("ESP32 하키 핑퐁 - 초고속 UDP 버전")
    clock = pygame.time.Clock()
 
    ball_size = int(HEIGHT * 0.03)
@@ -255,7 +223,6 @@ def run_game():
             current_cmd = network_command
             network_command = ""
 
-      # 시스템 제어 구문 처리
       if current_cmd:
          if current_cmd == "SRT":
             if UI_state == "MAIN_MENU":
@@ -305,11 +272,11 @@ def run_game():
                   elif current_setting_index == 2: popup_type = "CREATOR"
                   elif current_setting_index == 3: UI_state = "MAIN_MENU"
 
-      # --- [2] 게임 플레이 패들 실시간 좌표 이동 계산 ---
+      # --- 패들 실시간 이동 판정 ---
       if UI_state == "GAME_PLAY":
          keys = pygame.key.get_pressed()
          
-         # P1 처리 (조이스틱 프레임 가속도 제어 + PC 키보드)
+         # P1 처리
          move_p1_x = p1_joy_x * paddle_speed
          move_p1_y = p1_joy_y * paddle_speed
          if keys[pygame.K_w]: move_p1_y = -paddle_speed
@@ -320,13 +287,12 @@ def run_game():
          p1_cx += int(move_p1_x)
          p1_cy += int(move_p1_y)
          
-         # 테이블 왼쪽 하프라인 경계 설정
          if p1_cy < p1_radius: p1_cy = p1_radius
          if p1_cy > HEIGHT - p1_radius: p1_cy = HEIGHT - p1_radius
          if p1_cx < p1_radius: p1_cx = p1_radius
          if p1_cx > center_line_x - p1_radius: p1_cx = center_line_x - p1_radius
             
-         # P2 처리 (조이스틱 프레임 가속도 제어 + PC 키보드)
+         # P2 처리
          move_p2_x = p2_joy_x * paddle_speed
          move_p2_y = p2_joy_y * paddle_speed
          if keys[pygame.K_UP]:    move_p2_y = -paddle_speed
@@ -337,13 +303,12 @@ def run_game():
          p2_cx += int(move_p2_x)
          p2_cy += int(move_p2_y)
          
-         # 테이블 오른쪽 하프라인 경계 설정
          if p2_cy < p2_radius: p2_cy = p2_radius
          if p2_cy > HEIGHT - p2_radius: p2_cy = HEIGHT - p2_radius
          if p2_cx < center_line_x + p2_radius: p2_cx = center_line_x + p2_radius
          if p2_cx > WIDTH - p2_radius: p2_cx = WIDTH - p2_radius
 
-         # 공 이동 역학 물리 엔진
+         # 공 역학 물리 연산
          if ball_active:
             ball_x += ball_speed_x
             ball_y += ball_speed_y
@@ -357,7 +322,7 @@ def run_game():
 
          ball_cx, ball_cy = ball_x + ball_radius, ball_y + ball_radius
 
-         # --- P1 원형 충돌 계산 ---
+         # P1 충돌 판정
          dx1, dy1 = ball_cx - p1_cx, ball_cy - p1_cy
          distance1 = math.hypot(dx1, dy1)
          min_dist1 = p1_radius + ball_radius
@@ -378,7 +343,7 @@ def run_game():
                ball_cy = p1_cy + ny * min_dist1
                ball_x, ball_y = ball_cx - ball_radius, ball_cy - ball_radius
 
-         # --- P2 원형 충돌 계산 ---
+         # P2 충돌 판정
          dx2, dy2 = ball_cx - p2_cx, ball_cy - p2_cy
          distance2 = math.hypot(dx2, dy2)
          min_dist2 = p2_radius + ball_radius
@@ -423,7 +388,7 @@ def run_game():
       else:
          ball_rect = pygame.Rect(ball_x, ball_y, ball_size, ball_size)
 
-      # --- 그래픽 화면 렌더링 파트 ---
+      # --- 그래픽 렌더링 ---
       screen.fill(BLACK)
       pygame.draw.line(screen, GRAY, (center_line_x, 0), (center_line_x, HEIGHT), 2)
       pygame.draw.rect(screen, COLOR_OPTIONS[p1_color_idx], p1_goal, 4)
@@ -502,7 +467,7 @@ def run_game():
             elif popup_type == "CREATOR":
                p_title = font.render(" [ TEAM CREDITS ] ", True, YELLOW)
                screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.03)))
-               for idx, line in enumerate(["DEVELOPER: Team Hockey Pong", "HARDWARE: ESP32 Wi-Fi Socket", "GRAPHICS: Pygame Native Framework"]):
+               for idx, line in enumerate(["DEVELOPER: Team Hockey Pong", "HARDWARE: ESP32 Wi-Fi UDP", "GRAPHICS: Pygame Native Framework"]):
                   txt_s = btn_font.render(line, True, WHITE)
                   screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, popup_rect.top + int(HEIGHT * 0.12) + (idx * 30)))
 
@@ -513,6 +478,6 @@ def run_game():
    sys.exit()
 
 if __name__ == "__main__":
-   net_thread = threading.Thread(target=socket_server_thread, daemon=True)
+   net_thread = threading.Thread(target=udp_server_thread, daemon=True)
    net_thread.start()
    run_game()
