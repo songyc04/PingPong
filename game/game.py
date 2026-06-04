@@ -31,11 +31,17 @@ p2_joy_x, p2_joy_y = 0.0, 0.0
 sound_enabled = True
 p1_color_idx = 0  
 p2_color_idx = 1  
+game_time_limit = 30000
+time_limit_idx = 1
+TIME_LIMITS = [10000, 30000, 60000, 120000]
 
 # --- 설정 화면 커서 및 팝업 상태 정의 ---
 current_setting_index = 0  
 popup_type = ""            
 popup_sub_index = 0        
+
+# --- 카운트다운 및 입력 제어 플래그 전역 배치 ---
+countdown_active = False
 
 # --- [네트워크 분리 설정] ---
 ESP32_IP = "192.168.0.207"
@@ -44,54 +50,80 @@ PYTHON_RCV_PORT = 10001     # 파이썬이 '수신'할 본인 포트
 
 # 송신 전용 UDP 소켓 독립 생성
 tx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+last_joystick_ip = None
 
 def send_to_esp32(message):
    """
-   10002 포트에서 대기 중인 ESP32로 명령 문자열을 송신합니다.
+   10002 포트에서 대기 중인 LCD ESP32와, 최근 패킷을 송신한 조이스틱/키패드 ESP32(10001 포트)로 명령 문자열을 송신합니다.
    """
+   global last_joystick_ip
    try:
+      # LCD로 송신 (10002)
       tx_socket.sendto(message.encode('utf-8'), (ESP32_IP, ESP32_SEND_PORT))
+      # 키패드/조이스틱 ESP32로 송신 (10001)
+      if last_joystick_ip:
+         tx_socket.sendto(message.encode('utf-8'), (last_joystick_ip, PYTHON_RCV_PORT))
    except Exception as e:
       print(f"[네트워크] ESP32 송신 오류: {e}")
 
 def parse_joystick(raw_msg):
    """
-   [UDP 매핑 알고리즘] “정수,정수,정수,정수”
+   [UDP 매핑 알고리즘] “정수,정수,정수,정수” 또는 “정수,정수”
    중립 범위: 2630 ~ 2750, 최솟값 0, 최댓값 4095
+   카운트다운 중일 때는 수신 자체가 들어오지 않으므로, 이 함수가 호출된다는 것은 들어오는 대로 전부 출력해야 함을 의미합니다.
    """
    global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
    
    try:
       data = raw_msg.split(',')
-      if len(data) < 4: 
-         return
+      if len(data) == 2:
+         p1_x = int(data[0])
+         p1_y = int(data[1])
          
-      p1_x = int(data[0])
-      p1_y = int(data[1])
-      p2_x = int(data[2])
-      p2_y = int(data[3])
-      
-      # --- P1 조이스틱 정규화 ---
-      if 2630 <= p1_x <= 2750:   p1_jx = 0.0
-      elif p1_x < 2630:          p1_jx = (p1_x - 2630) / 2630.0
-      else:                      p1_jx = (p1_x - 2750) / (4095.0 - 2750.0)
+         # --- P1 조이스틱 정규화 ---
+         if 2630 <= p1_x <= 2750:   p1_jx = 0.0
+         elif p1_x < 2630:          p1_jx = (p1_x - 2630) / 2630.0
+         else:                      p1_jx = (p1_x - 2750) / (4095.0 - 2750.0)
+            
+         if 2630 <= p1_y <= 2750:   p1_jy = 0.0
+         elif p1_y < 2630:          p1_jy = (p1_y - 2630) / 2630.0
+         else:                      p1_jy = (p1_y - 2750) / (4095.0 - 2750.0)
          
-      if 2630 <= p1_y <= 2750:   p1_jy = 0.0
-      elif p1_y < 2630:          p1_jy = (p1_y - 2630) / 2630.0
-      else:                      p1_jy = (p1_y - 2750) / (4095.0 - 2750.0)
+         # [수정] 변화 여부 상관없이 수신하는 즉시 터미널 전체 출력
+         print(f"[UDP 수신(2P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | Raw: {raw_msg}")
+            
+         p1_joy_x, p1_joy_y = p1_jx, p1_jy
+         
+      elif len(data) >= 4:
+         p1_x = int(data[0])
+         p1_y = int(data[1])
+         p2_x = int(data[2])
+         p2_y = int(data[3])
+         
+         # --- P1 조이스틱 정규화 ---
+         if 2630 <= p1_x <= 2750:   p1_jx = 0.0
+         elif p1_x < 2630:          p1_jx = (p1_x - 2630) / 2630.0
+         else:                      p1_jx = (p1_x - 2750) / (4095.0 - 2750.0)
+            
+         if 2630 <= p1_y <= 2750:   p1_jy = 0.0
+         elif p1_y < 2630:          p1_jy = (p1_y - 2630) / 2630.0
+         else:                      p1_jy = (p1_y - 2750) / (4095.0 - 2750.0)
 
-      # --- P2 조이스틱 정규화 ---
-      if 2630 <= p2_x <= 2750:   p2_jx = 0.0
-      elif p2_x < 2630:          p2_jx = (p2_x - 2630) / 2630.0
-      else:                      p2_jx = (p2_x - 2750) / (4095.0 - 2750.0)
-         
-      if 2630 <= p2_y <= 2750:   p2_jy = 0.0
-      elif p2_y < 2630:          p2_jy = (p2_y - 2630) / 2630.0
-      else:                      p2_jy = (p2_y - 2750) / (4095.0 - 2750.0)
+         # --- P2 조이스틱 정규화 ---
+         if 2630 <= p2_x <= 2750:   p2_jx = 0.0
+         elif p2_x < 2630:          p2_jx = (p2_x - 2630) / 2630.0
+         else:                      p2_jx = (p2_x - 2750) / (4095.0 - 2750.0)
+            
+         if 2630 <= p2_y <= 2750:   p2_jy = 0.0
+         elif p2_y < 2630:          p2_jy = (p2_y - 2630) / 2630.0
+         else:                      p2_jy = (p2_y - 2750) / (4095.0 - 2750.0)
 
-      # 변수 업데이트
-      p1_joy_x, p1_joy_y = p1_jx, p1_jy
-      p2_joy_x, p2_joy_y = p2_jx, p2_jy
+         # [수정] 변화 여부 상관없이 수신하는 즉시 터미널 전체 출력
+         print(f"[UDP 수신(4P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | P2: ({p2_jx:+.2f}, {p2_jy:+.2f}) | Raw: {raw_msg}")
+
+         # 변수 업데이트
+         p1_joy_x, p1_joy_y = p1_jx, p1_jy
+         p2_joy_x, p2_joy_y = p2_jx, p2_jy
             
    except Exception:
       pass
@@ -100,14 +132,13 @@ def udp_server_thread():
    """
    UDP 수신 전용 스레드 (10001번 포트 강제 바인딩)
    """
-   global network_command
+   global network_command, last_joystick_ip, countdown_active, UI_state
    SERVER_IP = "0.0.0.0" # 모든 네트워크 인터페이스에서 수신
    
    # 수신 전용 UDP 소켓 독립 생성
    rx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
    
    try:
-      # 파이썬 프로그램의 포트를 10001로 고정하여 수신을 대기합니다.
       rx_socket.bind((SERVER_IP, PYTHON_RCV_PORT))
       print(f"[네트워크] 파이썬 UDP 수신 포트({PYTHON_RCV_PORT})가 정상 개방되었습니다.")
    except Exception as e:
@@ -116,20 +147,21 @@ def udp_server_thread():
 
    while True:
       try:
-         # 10001 포트로 들어오는 패킷을 대기 및 수신
          data, addr = rx_socket.recvfrom(1024)
          if not data:
             continue
             
          raw_msg = data.decode("utf-8").strip()
-         print(f"Joysticks: {raw_msg}")
+         last_joystick_ip = addr[0]
          
-         # 쉼표(,) 개수로 데이터 타입 식별
-         if raw_msg.count(',') >= 3:
+         if ',' in raw_msg:
+            # 카운트다운(3초)이 진행 중일 때는 하드웨어 조이스틱 아날로그 패킷을 완전히 무시하여 출력하지 않습니다.
+            if UI_state == "GAME_PLAY" and countdown_active:
+               continue
             with command_lock:
                parse_joystick(raw_msg)
          else:
-            # 일반 명령 문자열 처리 (SRT, STP, UP, DN, CLK 등)
+            print(f"Command: {raw_msg}")
             with command_lock:
                network_command = raw_msg
                
@@ -141,6 +173,7 @@ def run_game():
    global UI_state, network_command, current_setting_index, popup_type, popup_sub_index
    global sound_enabled, p1_color_idx, p2_color_idx
    global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
+   global game_time_limit, time_limit_idx, countdown_active
    
    pygame.init()
    
@@ -183,6 +216,7 @@ def run_game():
    title_font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.08))
    font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.05))
    btn_font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.035))
+   countdown_font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.18))
 
    btn_width, btn_height = int(WIDTH * 0.22), int(HEIGHT * 0.08)
    btn_start_rect = pygame.Rect(WIDTH // 2 - btn_width // 2, int(HEIGHT * 0.45), btn_width, btn_height)
@@ -195,7 +229,11 @@ def run_game():
    btn_back_width, btn_back_height = int(WIDTH * 0.15), int(HEIGHT * 0.06)
    btn_back_rect = pygame.Rect(WIDTH // 2 - btn_back_width // 2, int(HEIGHT * 0.72), btn_back_width, btn_back_height)
 
-   setting_y_positions = [int(HEIGHT * 0.38), int(HEIGHT * 0.48), int(HEIGHT * 0.58), int(HEIGHT * 0.72)]
+   setting_y_positions = [int(HEIGHT * 0.35), int(HEIGHT * 0.43), int(HEIGHT * 0.51), int(HEIGHT * 0.59), int(HEIGHT * 0.72)]
+
+   game_elapsed_time = 0.0
+   game_timer_active = False
+   countdown_timer = 0
 
    running = True
    while running:
@@ -222,7 +260,12 @@ def run_game():
                      ball_active = False  
                      p1_cx, p1_cy = int(WIDTH * 0.06), HEIGHT // 2
                      p2_cx, p2_cy = WIDTH - int(WIDTH * 0.06), HEIGHT // 2
+                     p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y = 0.0, 0.0, 0.0, 0.0
                      UI_state = "GAME_PLAY"
+                     game_elapsed_time = 0.0
+                     game_timer_active = False
+                     countdown_timer = 3000
+                     countdown_active = True
                   elif btn_setting_rect.collidepoint(mouse_pos):
                      UI_state = "SETTINGS"
                      current_setting_index = 0
@@ -240,11 +283,26 @@ def run_game():
             current_cmd = network_command
             network_command = ""
 
+      # --- 카운트다운 타이머 업데이트 ---
+      if UI_state == "GAME_PLAY" and countdown_active:
+         countdown_timer -= clock.get_time()
+         if countdown_timer <= 0:
+            countdown_active = False
+            countdown_timer = 0
+            p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y = 0.0, 0.0, 0.0, 0.0
+            print("[시스템] 3초 카운트다운 종료. 조이스틱 데이터를 실시간 출력합니다.")
+            send_to_esp32("SRT")  
+            game_timer_active = True
+
+      # --- 게임 타이머 경과 시간 계산 및 제한시간 경과 시 END 명령 발생 ---
+      if UI_state == "GAME_PLAY" and game_timer_active:
+         game_elapsed_time += clock.get_time()
+         if game_elapsed_time >= game_time_limit:
+            print(f"[게임] {game_time_limit / 1000.0:.0f}초가 경과하여 게임을 종료합니다. (current_cmd = END)")
+            current_cmd = "END"
+
       # --- 외부 수신 명령 처리 및 ESP32 바이패스 송신 ---
       if current_cmd:
-         # 10001번으로 수신된 명령(SRT, STP 등)을 확인하자마자 10002번 포트의 ESP32로 즉시 던집니다.
-         send_to_esp32(current_cmd)
-         
          if current_cmd == "SRT":
             if UI_state == "MAIN_MENU":
                p1_score, p2_score = 0, 0
@@ -253,23 +311,40 @@ def run_game():
                ball_active = False  
                p1_cx, p1_cy = int(WIDTH * 0.06), HEIGHT // 2
                p2_cx, p2_cy = WIDTH - int(WIDTH * 0.06), HEIGHT // 2
+               p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y = 0.0, 0.0, 0.0, 0.0
                UI_state = "GAME_PLAY"
-            elif UI_state == "PAUSE": UI_state = "GAME_PLAY"
-         elif current_cmd == "STP":
-            if UI_state == "GAME_PLAY": UI_state = "PAUSE"
+               game_elapsed_time = 0.0
+               game_timer_active = False
+               countdown_timer = 3000
+               countdown_active = True
+            elif UI_state == "PAUSE":
+               UI_state = "GAME_PLAY"
+               game_timer_active = False
+               countdown_timer = 3000
+               countdown_active = True
+         else:
+            send_to_esp32(current_cmd)
+         
+         if current_cmd == "STP":
+            if UI_state == "GAME_PLAY":
+               UI_state = "PAUSE"
+               game_timer_active = False
+               countdown_active = False
          elif current_cmd == "END":
-            # [기능 추가] END 수신 시 현재 최고 점수 플레이어 정보를 포맷팅하여 송신
             if p1_score > p2_score:
                result_msg = f"PLAYER1,{p1_score}"
             elif p2_score > p1_score:
                result_msg = f"PLAYER2,{p2_score}"
             else:
-               result_msg = f"DRAW,{p1_score}" # 동점일 경우 예외 처리
+               result_msg = f"DRAW,{p1_score}"
             
-            send_to_esp32(result_msg) # 10002번 포트로 결과 데이터 추가 전송
+            send_to_esp32(result_msg) 
             
             UI_state = "MAIN_MENU"
             popup_type = ""
+            game_elapsed_time = 0.0
+            game_timer_active = False
+            countdown_active = False
          elif current_cmd == "SET":
             UI_state = "SETTINGS"
             current_setting_index = 0
@@ -288,11 +363,30 @@ def run_game():
                      if popup_sub_index == 0: p1_color_idx = (p1_color_idx + 1) % len(COLOR_OPTIONS)
                      elif popup_sub_index == 1: p2_color_idx = (p2_color_idx + 1) % len(COLOR_OPTIONS)
                      elif popup_sub_index in [2, 3]: popup_type = ""
+               elif popup_type == "GAME_CUSTOM":
+                  if current_cmd in ["UP", "DN"]: popup_sub_index = (popup_sub_index + 1) % 2
+                  elif current_cmd == "CLK":
+                     if popup_sub_index == 0:
+                        popup_type = "SETTING_TIMES"
+                        popup_sub_index = time_limit_idx
+                     else:
+                        popup_type = ""
+               elif popup_type == "SETTING_TIMES":
+                  if current_cmd == "UP": popup_sub_index = (popup_sub_index - 1) % 5
+                  elif current_cmd == "DN": popup_sub_index = (popup_sub_index + 1) % 5
+                  elif current_cmd == "CLK":
+                     if popup_sub_index < 4:
+                        time_limit_idx = popup_sub_index
+                        game_time_limit = TIME_LIMITS[time_limit_idx]
+                        print(f"[설정] 게임 제한시간이 {game_time_limit / 1000.0:.0f}초로 변경되었습니다.")
+                     else:
+                        popup_type = "GAME_CUSTOM"
+                        popup_sub_index = 0
                elif popup_type == "CREATOR":
                   if current_cmd == "CLK": popup_type = ""
             else:
-               if current_cmd == "UP": current_setting_index = (current_setting_index - 1) % 4
-               elif current_cmd == "DN": current_setting_index = (current_setting_index + 1) % 4
+               if current_cmd == "UP": current_setting_index = (current_setting_index - 1) % 5
+               elif current_cmd == "DN": current_setting_index = (current_setting_index + 1) % 5
                elif current_cmd == "CLK":
                   if current_setting_index == 0:
                      popup_type = "SOUND"
@@ -300,11 +394,16 @@ def run_game():
                   elif current_setting_index == 1:
                      popup_type = "COLOR"
                      popup_sub_index = 0
-                  elif current_setting_index == 2: popup_type = "CREATOR"
-                  elif current_setting_index == 3: UI_state = "MAIN_MENU"
+                  elif current_setting_index == 2:
+                     popup_type = "GAME_CUSTOM"
+                     popup_sub_index = 0
+                  elif current_setting_index == 3:
+                     popup_type = "CREATOR"
+                  elif current_setting_index == 4:
+                     UI_state = "MAIN_MENU"
 
       # --- 패들 실시간 이동 판정 ---
-      if UI_state == "GAME_PLAY":
+      if UI_state == "GAME_PLAY" and not countdown_active:
          keys = pygame.key.get_pressed()
          
          # P1 처리
@@ -444,9 +543,23 @@ def run_game():
       elif UI_state in ["GAME_PLAY", "PAUSE"]:
          score_text = font.render(f"{p1_score}   :   {p2_score}", True, WHITE)
          screen.blit(score_text, (WIDTH // 2 - score_text.get_width() // 2, int(HEIGHT * 0.04)))
-         if UI_state == "GAME_PLAY" and not ball_active:
+         
+         # 경과 시간 표시 UI
+         elapsed_sec = game_elapsed_time / 1000.0
+         limit_sec = game_time_limit / 1000.0
+         time_text = btn_font.render(f"TIME: {elapsed_sec:.1f} / {limit_sec:.0f}s", True, YELLOW)
+         screen.blit(time_text, (WIDTH // 2 - time_text.get_width() // 2, int(HEIGHT * 0.12)))
+
+         # 카운트다운 표시
+         if UI_state == "GAME_PLAY" and countdown_active:
+            count_val = math.ceil(countdown_timer / 1000.0)
+            if count_val > 0:
+               count_text = countdown_font.render(str(count_val), True, YELLOW)
+               screen.blit(count_text, (WIDTH // 2 - count_text.get_width() // 2, HEIGHT // 2 - count_text.get_height() // 2))
+
+         if UI_state == "GAME_PLAY" and not ball_active and not countdown_active:
             sub_text = btn_font.render("Hit the ball to serve!", True, YELLOW)
-            screen.blit(sub_text, (WIDTH // 2 - sub_text.get_width() // 2, int(HEIGHT * 0.12)))
+            screen.blit(sub_text, (WIDTH // 2 - sub_text.get_width() // 2, int(HEIGHT * 0.18)))
          if UI_state == "PAUSE":
             pause_text = title_font.render("PAUSED", True, GRAY)
             screen.blit(pause_text, (WIDTH // 2 - pause_text.get_width() // 2, HEIGHT // 2 - pause_text.get_height() // 2))
@@ -455,12 +568,12 @@ def run_game():
          set_title_text = title_font.render("SETTINGS", True, WHITE)
          screen.blit(set_title_text, (WIDTH // 2 - set_title_text.get_width() // 2, int(HEIGHT * 0.15)))
          pygame.draw.rect(screen, GRAY, setting_box_rect, 2, border_radius=15)
-         labels = ["1. SOUND SETTINGS", "2. COLOR CUSTOM", "3. CREATOR CREDITS"]
+         labels = ["1. SOUND SETTINGS", "2. COLOR CUSTOM", "3. GAME CUSTOM", "4. CREATOR CREDITS"]
          for i, label_text in enumerate(labels):
             color_preset = YELLOW if (current_setting_index == i and not popup_type) else WHITE
             lbl_surf = font.render(label_text, True, color_preset)
             screen.blit(lbl_surf, (setting_box_rect.left + int(WIDTH * 0.05), setting_y_positions[i]))
-         is_hover = btn_back_rect.collidepoint(mouse_pos) or (current_setting_index == 3 and not popup_type)
+         is_hover = btn_back_rect.collidepoint(mouse_pos) or (current_setting_index == 4 and not popup_type)
          back_color = [min(c + 40, 255) if is_hover else c for c in GRAY]
          pygame.draw.rect(screen, back_color, btn_back_rect, border_radius=8)
          back_txt = btn_font.render("BACK", True, WHITE)
@@ -468,8 +581,8 @@ def run_game():
 
          if not popup_type:
             cursor_text = font.render("->", True, YELLOW)
-            cursor_x = btn_back_rect.left - int(WIDTH * 0.03) if current_setting_index == 3 else setting_box_rect.left + int(WIDTH * 0.01)
-            cursor_y = setting_y_positions[3] + (btn_back_rect.height // 2) - (cursor_text.get_height() // 2) if current_setting_index == 3 else setting_y_positions[current_setting_index]
+            cursor_x = btn_back_rect.left - int(WIDTH * 0.03) if current_setting_index == 4 else setting_box_rect.left + int(WIDTH * 0.01)
+            cursor_y = setting_y_positions[4] + (btn_back_rect.height // 2) - (cursor_text.get_height() // 2) if current_setting_index == 4 else setting_y_positions[current_setting_index]
             screen.blit(cursor_text, (cursor_x, cursor_y))
 
          if popup_type:
@@ -494,6 +607,25 @@ def run_game():
                   if idx == 0: pygame.draw.rect(screen, COLOR_OPTIONS[p1_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25))
                   elif idx == 1: pygame.draw.rect(screen, COLOR_OPTIONS[p2_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25))
                   txt_s = btn_font.render(text, True, YELLOW if popup_sub_index == idx else WHITE)
+                  screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
+            elif popup_type == "GAME_CUSTOM":
+               p_title = font.render(" [ GAME CUSTOM ] ", True, YELLOW)
+               screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.03)))
+               options_text = ["1. SETTING TIMES", "[ BACK ]"]
+               for idx, text in enumerate(options_text):
+                  current_y = popup_rect.top + int(HEIGHT * 0.12) + (idx * int(HEIGHT * 0.08))
+                  color_preset = YELLOW if popup_sub_index == idx else WHITE
+                  txt_s = btn_font.render(text, True, color_preset)
+                  screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
+            elif popup_type == "SETTING_TIMES":
+               p_title = font.render(" [ SETTING TIMES ] ", True, YELLOW)
+               screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.02)))
+               options_text = ["10 SECONDS", "30 SECONDS", "1 MINUTE", "2 MINUTES", "[ SAVE & EXIT ]"]
+               for idx, text in enumerate(options_text):
+                  current_y = popup_rect.top + int(HEIGHT * 0.08) + (idx * int(HEIGHT * 0.05))
+                  marker = "* " if idx == time_limit_idx else "  "
+                  color_val = GREEN if idx == time_limit_idx else (YELLOW if popup_sub_index == idx else WHITE)
+                  txt_s = btn_font.render(marker + text, True, color_val)
                   screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
             elif popup_type == "CREATOR":
                p_title = font.render(" [ TEAM CREDITS ] ", True, YELLOW)
