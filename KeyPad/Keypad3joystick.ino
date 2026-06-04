@@ -319,16 +319,10 @@ void loop() {
     int p2X = readAvg(P2_X);
     int p2Y = readAvg(P2_Y);
 
-    String dataP1 = "P1:" + String(p1X) + "," + String(p1Y);
-    String dataP2 = "P2:" + String(p2X) + "," + String(p2Y);
-
-    sendUDP(dataP1);
+    String data = String(p1X) + "," + String(p1Y) + "," + String(p2X) + "," + String(p2Y);
+    sendUDP(data);
     Serial.print("[UDP 송신-SRT] ");
-    Serial.println(dataP1);
-
-    sendUDP(dataP2);
-    Serial.print("[UDP 송신-SRT] ");
-    Serial.println(dataP2);
+    Serial.println(data);
 
     delay(20);
   }
