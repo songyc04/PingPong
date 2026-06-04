@@ -64,6 +64,18 @@ void showResult(int score, String winner)
   lcd.print(score);
 }
 
+void showDraw(int score)
+{
+  lcd.clear();
+
+  lcd.setCursor(0,0);
+  lcd.print("DRAW");
+
+  lcd.setCursor(0,1);
+  lcd.print("SCORE:");
+  lcd.print(score);
+}
+
 // ================= SETUP =================
 
 void setup()
@@ -132,6 +144,13 @@ void loop()
     else if (response == "STP")
     {
       showPaused();
+    }
+    else if(response.startsWith("DRAW"))
+    {
+      int commaIndex = response.indexOf(',');
+      int score = response.substring(commaIndex + 1).toInt();
+
+      showDraw(score);
     }
     else if (response.startsWith("PLAYER"))
     {
