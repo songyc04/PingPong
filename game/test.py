@@ -43,10 +43,10 @@ popup_sub_index = 0
 # --- 카운트다운 및 입력 제어 플래그 전역 배치 ---
 countdown_active = False
 
-# --- [네트워크 분리 설정] ---
-ESP32_IP = "192.168.0.207"
-ESP32_SEND_PORT = 10002
-PYTHON_RCV_PORT = 10001
+# --- [네트워크 분리 설정 - ESP32 스펙과 완벽하게 일치 완료] ---
+ESP32_IP = "192.168.0.207"      # ESP32의 고정 IP
+ESP32_SEND_PORT = 10002         # 파이썬에서 ESP32(LCD)로 송신할 포트
+PYTHON_RCV_PORT = 10001         # 파이썬 자체 수신 포트 (조이스틱/키패드 데이터 수신)
 
 # 송신 전용 UDP 소켓 독립 생성
 tx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -59,7 +59,7 @@ def parse_joystick(raw_msg):
         return
     
     try:
-        # 혹시 모를 문자열 접두사(P1:, P2:)가 섞여 들어올 경우를 대비해 콤마, 마이너스, 숫자만 추출
+        # 문자열 접두사 필터링
         cleaned_msg = ''.join(c for c in raw_msg if c.isdigit() or c == ',' or c == '-')
         data = cleaned_msg.split(',')
         
@@ -74,7 +74,6 @@ def parse_joystick(raw_msg):
             p2_jx, p2_jy = 0.0, 0.0
 
             # --- [1P 조이스틱 정규화 & 데드존 확장] ---
-            # 미세하게 흐르는 현상을 막기 위해 중심점 마진을 1800~2300으로 소폭 확장
             p1_center_min, p1_center_max = 1800, 2300
             
             if p1_center_min <= p1_x <= p1_center_max: p1_jx = 0.0
@@ -96,7 +95,7 @@ def parse_joystick(raw_msg):
             elif p2_y < p2_center_min:                 p2_jy = (p2_y - p2_center_min) / float(p2_center_min)
             else:                                      p2_jy = (p2_y - p2_center_max) / float(4095.0 - p2_center_max)
 
-            # 계산 결과가 한계값(-1.0 ~ 1.0)을 넘지 않도록 Clamp 처리
+            # Clamp 처리 (-1.0 ~ 1.0 한계 보장)
             p1_joy_x, p1_joy_y = max(-1.0, min(1.0, p1_jx)), max(-1.0, min(1.0, p1_jy))
             p2_joy_x, p2_joy_y = max(-1.0, min(1.0, p2_jx)), max(-1.0, min(1.0, p2_jy))
                 
@@ -121,6 +120,7 @@ def parse_joystick(raw_msg):
 def send_to_esp32(message):
     try:
         tx_socket.sendto(message.encode('utf-8'), (ESP32_IP, ESP32_SEND_PORT))
+        print(f"[네트워크 송신 -> ESP32]: {message}")
     except Exception as e:
         print(f"[네트워크] ESP32 송신 오류: {e}")
 
@@ -150,7 +150,7 @@ def udp_server_thread():
                 with command_lock:
                     parse_joystick(raw_msg)
             else:
-                print(f"Command 수신: {raw_msg}")
+                print(f"[네트워크 수신 Command]: {raw_msg}")
                 with command_lock:
                     network_command = raw_msg
                     
@@ -309,12 +309,17 @@ def run_game():
                     game_timer_active = False
                     countdown_timer = 3000
                     countdown_active = True
+                    
+                    # 📢 [ESP32 LCD 화면 동기화 패킷 재발송]
+                    send_to_esp32("SRT")
             
             elif current_cmd == "STP":
                 if UI_state == "GAME_PLAY":
                     UI_state = "PAUSE"
                     game_timer_active = False
                     countdown_active = False
+                    send_to_esp32("STP") # LCD 업데이트용
+                    
             elif current_cmd == "END":
                 if p1_score > p2_score:
                     result_msg = f"PLAYER1,{p1_score}"
@@ -330,10 +335,14 @@ def run_game():
                 game_elapsed_time = 0.0
                 game_timer_active = False
                 countdown_active = False
+                
             elif current_cmd == "SET":
-                UI_state = "SETTINGS"
-                current_setting_index = 0
-                popup_type = ""
+                # 📢 [버그 수정]: 누를 때마다 세팅 상태가 강제로 초기화되던 현상 방지
+                if UI_state != "SETTINGS":
+                    UI_state = "SETTINGS"
+                    current_setting_index = 0
+                    popup_type = ""
+                
             elif UI_state == "SETTINGS":
                 if popup_type:
                     if popup_type == "SOUND":
