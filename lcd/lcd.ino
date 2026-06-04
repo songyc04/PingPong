@@ -56,12 +56,12 @@ void showResult(int score, String winner)
   lcd.clear();
 
   lcd.setCursor(0, 0);
-  lcd.print("SCORE:");
-  lcd.print(score);
-
-  lcd.setCursor(0, 1);
   lcd.print("WINNER:");
   lcd.print(winner);
+
+  lcd.setCursor(0, 1);
+  lcd.print("SCORE:");
+  lcd.print(score);
 }
 
 // ================= SETUP =================
