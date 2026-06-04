@@ -38,7 +38,7 @@ void showRunning()
   lcd.clear();
 
   lcd.setCursor(0, 0);
-  lcd.print("playing");
+  lcd.print("PLAYING");
 
   
 }
