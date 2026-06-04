@@ -52,27 +52,12 @@ PYTHON_RCV_PORT = 10001     # 파이썬이 '수신'할 본인 포트
 tx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 last_joystick_ip = None
 
-def send_to_esp32(message):
-   """
-   10002 포트에서 대기 중인 LCD ESP32와, 최근 패킷을 송신한 조이스틱/키패드 ESP32(10001 포트)로 명령 문자열을 송신합니다.
-   """
-   global last_joystick_ip
-   try:
-      # LCD로 송신 (10002)
-      tx_socket.sendto(message.encode('utf-8'), (ESP32_IP, ESP32_SEND_PORT))
-      # 키패드/조이스틱 ESP32로 송신 (10001)
-      if last_joystick_ip:
-         tx_socket.sendto(message.encode('utf-8'), (last_joystick_ip, PYTHON_RCV_PORT))
-   except Exception as e:
-      print(f"[네트워크] ESP32 송신 오류: {e}")
-
 def parse_joystick(raw_msg):
    """
    [UDP 매핑 알고리즘] “정수,정수,정수,정수” 또는 “정수,정수”
    중립 범위: 2630 ~ 2750, 최솟값 0, 최댓값 4095
-   카운트다운 중일 때는 수신 자체가 들어오지 않으므로, 이 함수가 호출된다는 것은 들어오는 대로 전부 출력해야 함을 의미합니다.
    """
-   global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
+   global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y, countdown_active, UI_state
    
    try:
       data = raw_msg.split(',')
@@ -89,8 +74,9 @@ def parse_joystick(raw_msg):
          elif p1_y < 2630:          p1_jy = (p1_y - 2630) / 2630.0
          else:                      p1_jy = (p1_y - 2750) / (4095.0 - 2750.0)
          
-         # [수정] 변화 여부 상관없이 수신하는 즉시 터미널 전체 출력
-         print(f"[UDP 수신(2P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | Raw: {raw_msg}")
+         # [수정] 데이터 변수 저장은 항상 하되, 터미널 출력만 3초 카운트다운 해제 후에 작동
+         if UI_state == "GAME_PLAY" and not countdown_active:
+            print(f"[UDP 수신(2P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | Raw: {raw_msg}")
             
          p1_joy_x, p1_joy_y = p1_jx, p1_jy
          
@@ -118,8 +104,9 @@ def parse_joystick(raw_msg):
          elif p2_y < 2630:          p2_jy = (p2_y - 2630) / 2630.0
          else:                      p2_jy = (p2_y - 2750) / (4095.0 - 2750.0)
 
-         # [수정] 변화 여부 상관없이 수신하는 즉시 터미널 전체 출력
-         print(f"[UDP 수신(4P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | P2: ({p2_jx:+.2f}, {p2_jy:+.2f}) | Raw: {raw_msg}")
+         # [수정] 데이터 변수 저장은 항상 하되, 터미널 출력만 3초 카운트다운 해제 후에 작동
+         if UI_state == "GAME_PLAY" and not countdown_active:
+            print(f"[UDP 수신(4P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | P2: ({p2_jx:+.2f}, {p2_jy:+.2f}) | Raw: {raw_msg}")
 
          # 변수 업데이트
          p1_joy_x, p1_joy_y = p1_jx, p1_jy
@@ -128,11 +115,25 @@ def parse_joystick(raw_msg):
    except Exception:
       pass
 
+def send_to_esp32(message):
+   """
+   10002 포트에서 대기 중인 LCD ESP32와, 최근 패킷을 송신한 조이스틱/키패드 ESP32(10001 포트)로 명령 문자열을 송신합니다.
+   """
+   global last_joystick_ip
+   try:
+      # LCD로 송신 (10002)
+      tx_socket.sendto(message.encode('utf-8'), (ESP32_IP, ESP32_SEND_PORT))
+      # 키패드/조이스틱 ESP32로 송신 (10001)
+      if last_joystick_ip:
+         tx_socket.sendto(message.encode('utf-8'), (last_joystick_ip, PYTHON_RCV_PORT))
+   except Exception as e:
+      print(f"[네트워크] ESP32 송신 오류: {e}")
+
 def udp_server_thread():
    """
    UDP 수신 전용 스레드 (10001번 포트 강제 바인딩)
    """
-   global network_command, last_joystick_ip, countdown_active, UI_state
+   global network_command, last_joystick_ip
    SERVER_IP = "0.0.0.0" # 모든 네트워크 인터페이스에서 수신
    
    # 수신 전용 UDP 소켓 독립 생성
@@ -155,9 +156,7 @@ def udp_server_thread():
          last_joystick_ip = addr[0]
          
          if ',' in raw_msg:
-            # 카운트다운(3초)이 진행 중일 때는 하드웨어 조이스틱 아날로그 패킷을 완전히 무시하여 출력하지 않습니다.
-            if UI_state == "GAME_PLAY" and countdown_active:
-               continue
+            # [버그 수정] 스레드 내부에서 무조건 패킷 드랍(continue)을 하지 않고, 락을 걸고 파싱으로 넘깁니다.
             with command_lock:
                parse_joystick(raw_msg)
          else:
@@ -290,7 +289,7 @@ def run_game():
             countdown_active = False
             countdown_timer = 0
             p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y = 0.0, 0.0, 0.0, 0.0
-            print("[시스템] 3초 카운트다운 종료. 조이스틱 데이터를 실시간 출력합니다.")
+            print("[시스템] 3초 카운트다운 종료. 조이스틱 신호를 실시간 출력합니다.")
             send_to_esp32("SRT")  
             game_timer_active = True
 
@@ -403,6 +402,7 @@ def run_game():
                      UI_state = "MAIN_MENU"
 
       # --- 패들 실시간 이동 판정 ---
+      # 카운트다운 중이 아닐 때만 패들이 입력받아 움직입니다.
       if UI_state == "GAME_PLAY" and not countdown_active:
          keys = pygame.key.get_pressed()
          
