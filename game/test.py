@@ -113,9 +113,6 @@ def parse_joystick(raw_msg):
          elif p2_y < p2_center_min:                 p2_jy = (p2_y - p2_center_min) / float(p2_center_min)
          else:                                      p2_jy = (p2_y - p2_center_max) / float(4095.0 - p2_center_max)
 
-         # 실시간 디버그로그 확인
-         # print(f"[독립 검증] 1P: ({p1_jx:+.2f}, {p1_jy:+.2f}) | 2P: ({p2_jx:+.2f}, {p2_jy:+.2f})")
-
          # 연산 완료된 격리 데이터를 전역변수에 안전하게 동기화
          p1_joy_x, p1_joy_y = p1_jx, p1_jy
          p2_joy_x, p2_joy_y = p2_jx, p2_jy
@@ -206,7 +203,6 @@ def run_game():
    p1_score = 0
    p2_score = 0
    
-   # 시스템 기본 폰트 대체 처리 혹은 전용 폰트 로드
    try:
       title_font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.08))
       font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.05))
@@ -340,6 +336,7 @@ def run_game():
             current_setting_index = 0
             popup_type = ""
          elif UI_state == "SETTINGS":
+            # --- 상위 if 블록들과 완벽히 라인을 일치시킵니다 ---
             if popup_type:
                if popup_type == "SOUND":
                   if current_cmd in ["UP", "DN"]: popup_sub_index = (popup_sub_index + 1) % 2
@@ -586,41 +583,41 @@ def run_game():
                   pygame.draw.rect(screen, GREEN if popup_sub_index == idx else GRAY, target_rect, border_radius=6)
                   txt_s = btn_font.render(text, True, WHITE)
                   screen.blit(txt_s, (target_rect.centerx - txt_s.get_width() // 2, target_rect.centery - txt_s.get_height() // 2))
-               elif popup_type == "COLOR":
-                  p_title = font.render(" [ PADDLE COLOR CUSTOM ] ", True, YELLOW)
-                  screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.02)))
-                  options_text = [f"P1 COLOR : < {COLOR_NAMES[p1_color_idx]} >", f"P2 COLOR : < {COLOR_NAMES[p2_color_idx]} >", "[ SAVE & EXIT ]", "[ CANCEL ]"]
-                  for idx, text in enumerate(options_text):
-                     current_y = popup_rect.top + int(HEIGHT * 0.09) + (idx * int(HEIGHT * 0.05))
-                     if idx == 0: pygame.draw.rect(screen, COLOR_OPTIONS[p1_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25))
-                     elif idx == 1: pygame.draw.rect(screen, COLOR_OPTIONS[p2_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25))
-                     txt_s = btn_font.render(text, True, YELLOW if popup_sub_index == idx else WHITE)
-                     screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
-               elif popup_type == "GAME_CUSTOM":
-                  p_title = font.render(" [ GAME CUSTOM ] ", True, YELLOW)
-                  screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.03)))
-                  options_text = ["1. SETTING TIMES", "[ BACK ]"]
-                  for idx, text in enumerate(options_text):
-                     current_y = popup_rect.top + int(HEIGHT * 0.12) + (idx * int(HEIGHT * 0.08))
-                     color_preset = YELLOW if popup_sub_index == idx else WHITE
-                     txt_s = btn_font.render(text, True, color_preset)
-                     screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
-               elif popup_type == "SETTING_TIMES":
-                  p_title = font.render(" [ SETTING TIMES ] ", True, YELLOW)
-                  screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.02)))
-                  options_text = ["10 SECONDS", "30 SECONDS", "1 MINUTE", "2 MINUTES", "[ SAVE & EXIT ]"]
-                  for idx, text in enumerate(options_text):
-                     current_y = popup_rect.top + int(HEIGHT * 0.08) + (idx * int(HEIGHT * 0.05))
-                     marker = "* " if idx == time_limit_idx else "  "
-                     color_val = GREEN if idx == time_limit_idx else (YELLOW if popup_sub_index == idx else WHITE)
-                     txt_s = btn_font.render(marker + text, True, color_val)
-                     screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
-               elif popup_type == "CREATOR":
-                  p_title = font.render(" [ TEAM CREDITS ] ", True, YELLOW)
-                  screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.03)))
-                  for idx, line in enumerate(["DEVELOPER: Team Hockey Pong", "HARDWARE: ESP32 Wi-Fi UDP", "GRAPHICS: Pygame Native Framework"]):
-                     txt_s = btn_font.render(line, True, WHITE)
-                     screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, popup_rect.top + int(HEIGHT * 0.12) + (idx * 30)))
+            elif popup_type == "COLOR":
+               p_title = font.render(" [ PADDLE COLOR CUSTOM ] ", True, YELLOW)
+               screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.02)))
+               options_text = [f"P1 COLOR : < {COLOR_NAMES[p1_color_idx]} >", f"P2 COLOR : < {COLOR_NAMES[p2_color_idx]} >", "[ SAVE & EXIT ]", "[ CANCEL ]"]
+               for idx, text in enumerate(options_text):
+                  current_y = popup_rect.top + int(HEIGHT * 0.09) + (idx * int(HEIGHT * 0.05))
+                  if idx == 0: pygame.draw.rect(screen, COLOR_OPTIONS[p1_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25))
+                  elif idx == 1: pygame.draw.rect(screen, COLOR_OPTIONS[p2_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25))
+                  txt_s = btn_font.render(text, True, YELLOW if popup_sub_index == idx else WHITE)
+                  screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
+            elif popup_type == "GAME_CUSTOM":
+               p_title = font.render(" [ GAME CUSTOM ] ", True, YELLOW)
+               screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.03)))
+               options_text = ["1. SETTING TIMES", "[ BACK ]"]
+               for idx, text in enumerate(options_text):
+                  current_y = popup_rect.top + int(HEIGHT * 0.12) + (idx * int(HEIGHT * 0.08))
+                  color_preset = YELLOW if popup_sub_index == idx else WHITE
+                  txt_s = btn_font.render(text, True, color_preset)
+                  screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
+            elif popup_type == "SETTING_TIMES":
+               p_title = font.render(" [ SETTING TIMES ] ", True, YELLOW)
+               screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.02)))
+               options_text = ["10 SECONDS", "30 SECONDS", "1 MINUTE", "2 MINUTES", "[ SAVE & EXIT ]"]
+               for idx, text in enumerate(options_text):
+                  current_y = popup_rect.top + int(HEIGHT * 0.08) + (idx * int(HEIGHT * 0.05))
+                  marker = "* " if idx == time_limit_idx else "  "
+                  color_val = GREEN if idx == time_limit_idx else (YELLOW if popup_sub_index == idx else WHITE)
+                  txt_s = btn_font.render(marker + text, True, color_val)
+                  screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
+            elif popup_type == "CREATOR":
+               p_title = font.render(" [ TEAM CREDITS ] ", True, YELLOW)
+               screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.03)))
+               for idx, line in enumerate(["DEVELOPER: Team Hockey Pong", "HARDWARE: ESP32 Wi-Fi UDP", "GRAPHICS: Pygame Native Framework"]):
+                  txt_s = btn_font.render(line, True, WHITE)
+                  screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, popup_rect.top + int(HEIGHT * 0.12) + (idx * 30)))
 
       pygame.display.flip()
 
