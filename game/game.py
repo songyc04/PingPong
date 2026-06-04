@@ -74,7 +74,7 @@ def parse_joystick(raw_msg):
          elif p1_y < 2630:          p1_jy = (p1_y - 2630) / 2630.0
          else:                      p1_jy = (p1_y - 2750) / (4095.0 - 2750.0)
          
-         # [수정] 데이터 변수 저장은 항상 하되, 터미널 출력만 3초 카운트다운 해제 후에 작동
+         # 오직 터미널 실시간 출력만 3초 카운트다운이 끝난 후에 작동하도록 제어
          if UI_state == "GAME_PLAY" and not countdown_active:
             print(f"[UDP 수신(2P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | Raw: {raw_msg}")
             
@@ -104,7 +104,7 @@ def parse_joystick(raw_msg):
          elif p2_y < 2630:          p2_jy = (p2_y - 2630) / 2630.0
          else:                      p2_jy = (p2_y - 2750) / (4095.0 - 2750.0)
 
-         # [수정] 데이터 변수 저장은 항상 하되, 터미널 출력만 3초 카운트다운 해제 후에 작동
+         # 오직 터미널 실시간 출력만 3초 카운트다운이 끝난 후에 작동하도록 제어
          if UI_state == "GAME_PLAY" and not countdown_active:
             print(f"[UDP 수신(4P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | P2: ({p2_jx:+.2f}, {p2_jy:+.2f}) | Raw: {raw_msg}")
 
@@ -121,9 +121,7 @@ def send_to_esp32(message):
    """
    global last_joystick_ip
    try:
-      # LCD로 송신 (10002)
       tx_socket.sendto(message.encode('utf-8'), (ESP32_IP, ESP32_SEND_PORT))
-      # 키패드/조이스틱 ESP32로 송신 (10001)
       if last_joystick_ip:
          tx_socket.sendto(message.encode('utf-8'), (last_joystick_ip, PYTHON_RCV_PORT))
    except Exception as e:
@@ -134,9 +132,8 @@ def udp_server_thread():
    UDP 수신 전용 스레드 (10001번 포트 강제 바인딩)
    """
    global network_command, last_joystick_ip
-   SERVER_IP = "0.0.0.0" # 모든 네트워크 인터페이스에서 수신
+   SERVER_IP = "0.0.0.0"
    
-   # 수신 전용 UDP 소켓 독립 생성
    rx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
    
    try:
@@ -156,7 +153,6 @@ def udp_server_thread():
          last_joystick_ip = addr[0]
          
          if ',' in raw_msg:
-            # [버그 수정] 스레드 내부에서 무조건 패킷 드랍(continue)을 하지 않고, 락을 걸고 파싱으로 넘깁니다.
             with command_lock:
                parse_joystick(raw_msg)
          else:
@@ -401,9 +397,9 @@ def run_game():
                   elif current_setting_index == 4:
                      UI_state = "MAIN_MENU"
 
-      # --- 패들 실시간 이동 판정 ---
-      # 카운트다운 중이 아닐 때만 패들이 입력받아 움직입니다.
-      if UI_state == "GAME_PLAY" and not countdown_active:
+      # --- [수정 핵심] 패들 실시간 이동 판정 조건 완화 ---
+      # 카운트다운 진행 여부(countdown_active)와 상관없이 GAME_PLAY 상태라면 패들을 무조건 이동시킵니다.
+      if UI_state == "GAME_PLAY":
          keys = pygame.key.get_pressed()
          
          # P1 처리
@@ -438,8 +434,8 @@ def run_game():
          if p2_cx < center_line_x + p2_radius: p2_cx = center_line_x + p2_radius
          if p2_cx > WIDTH - p2_radius: p2_cx = WIDTH - p2_radius
 
-         # 공 역학 물리 연산
-         if ball_active:
+         # 공 역학 물리 연산 (카운트다운 중이 아닐 때만 공이 움직이도록 보호)
+         if ball_active and not countdown_active:
             ball_x += ball_speed_x
             ball_y += ball_speed_y
 
@@ -458,12 +454,12 @@ def run_game():
          min_dist1 = p1_radius + ball_radius
 
          if distance1 < min_dist1:
-            if not ball_active:  
+            if not ball_active and not countdown_active:  
                ball_active = True
                ball_speed_x = abs(base_ball_speed_x)
                ball_speed_y = base_ball_speed_y if dy1 >= 0 else -base_ball_speed_y
                ball_x = p1_cx + p1_radius + 2
-            else:
+            elif not countdown_active:
                if distance1 == 0: distance1 = 0.1
                nx, ny = dx1 / distance1, dy1 / distance1
                dot_product = ball_speed_x * nx + ball_speed_y * ny
@@ -479,12 +475,12 @@ def run_game():
          min_dist2 = p2_radius + ball_radius
 
          if distance2 < min_dist2:
-            if not ball_active:  
+            if not ball_active and not countdown_active:  
                ball_active = True
                ball_speed_x = -abs(base_ball_speed_x)
                ball_speed_y = base_ball_speed_y if dy2 >= 0 else -base_ball_speed_y
                ball_x = p2_cx - p2_radius - ball_size - 2
-            else:
+            elif not countdown_active:
                if distance2 == 0: distance2 = 0.1
                nx, ny = dx2 / distance2, dy2 / distance2
                dot_product = ball_speed_x * nx + ball_speed_y * ny
@@ -496,13 +492,13 @@ def run_game():
 
          ball_rect = pygame.Rect(ball_x, ball_y, ball_size, ball_size)
 
-         if ball_rect.colliderect(p1_goal):
+         if ball_rect.colliderect(p1_goal) and not countdown_active:
             p2_score += 1
             ball_x = int(WIDTH * 0.25) - ball_size // 2
             ball_y = HEIGHT // 2 - ball_size // 2
             ball_speed_x, ball_speed_y = base_ball_speed_x, base_ball_speed_y
             ball_active = False
-         elif ball_rect.colliderect(p2_goal):
+         elif ball_rect.colliderect(p2_goal) and not countdown_active:
             p1_score += 1
             ball_x = int(WIDTH * 0.75) - ball_size // 2
             ball_y = HEIGHT // 2 - ball_size // 2
@@ -637,7 +633,6 @@ def run_game():
       pygame.display.flip()
       clock.tick(60)
 
-   # 종료 시 소켓 클로즈 안전 조치
    tx_socket.close()
    pygame.quit()
    sys.exit()
