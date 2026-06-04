@@ -53,13 +53,13 @@ tx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 last_joystick_ip = None
 
 def parse_joystick(raw_msg):
-    global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y, countdown_active, UI_state
+    global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y, countdown_active
     
     if countdown_active:
         return
     
     try:
-        # 문자열 접두사 필터링
+        # 문자열 접두사 필터링 (숫자, 콤마, 마이너스만 남김)
         cleaned_msg = ''.join(c for c in raw_msg if c.isdigit() or c == ',' or c == '-')
         data = cleaned_msg.split(',')
         
@@ -104,6 +104,7 @@ def parse_joystick(raw_msg):
             p1_x = int(data[0])
             p1_y = int(data[1])
             
+            p1_jx, p1_jy = 0.0, 0.0
             if 1800 <= p1_x <= 2300:   p1_jx = 0.0
             elif p1_x < 1800:          p1_jx = (p1_x - 1800) / 1800.0
             else:                      p1_jx = (p1_x - 2300) / (4095.0 - 2300.0)
@@ -145,11 +146,12 @@ def udp_server_thread():
             raw_msg = data.decode("utf-8").strip()
             last_joystick_ip = addr[0]
             
-            # 콤마가 여러 개 있거나 순수 조이스틱 숫자로 가득 찬 패킷이면 무조건 파서로 보냄
-            if ',' in raw_msg and not any(cmd in raw_msg for cmd in ["SRT", "STP", "END", "SET", "DRAW", "PLAYER"]):
+            # 개선된 필터링: 메시지에 콤마가 있고 첫번째 문자가 숫자나 마이너스 기호이면 조이스틱 데이터로 판정
+            if ',' in raw_msg and (raw_msg[0].isdigit() or raw_msg[0] == '-'):
                 with command_lock:
                     parse_joystick(raw_msg)
             else:
+                # 콤마가 없거나 명확한 텍스트 커맨드(UP, DN, SRT 등)인 경우
                 print(f"[네트워크 수신 Command]: {raw_msg}")
                 with command_lock:
                     network_command = raw_msg
@@ -309,8 +311,6 @@ def run_game():
                     game_timer_active = False
                     countdown_timer = 3000
                     countdown_active = True
-                    
-                    # 📢 [ESP32 LCD 화면 동기화 패킷 재발송]
                     send_to_esp32("SRT")
             
             elif current_cmd == "STP":
@@ -318,7 +318,7 @@ def run_game():
                     UI_state = "PAUSE"
                     game_timer_active = False
                     countdown_active = False
-                    send_to_esp32("STP") # LCD 업데이트용
+                    send_to_esp32("STP")
                     
             elif current_cmd == "END":
                 if p1_score > p2_score:
@@ -337,7 +337,6 @@ def run_game():
                 countdown_active = False
                 
             elif current_cmd == "SET":
-                # 📢 [버그 수정]: 누를 때마다 세팅 상태가 강제로 초기화되던 현상 방지
                 if UI_state != "SETTINGS":
                     UI_state = "SETTINGS"
                     current_setting_index = 0
