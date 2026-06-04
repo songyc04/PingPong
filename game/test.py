@@ -59,25 +59,12 @@ def parse_joystick(raw_msg):
         return
     
     try:
-        data = raw_msg.split(',')
+        # 혹시 모를 문자열 접두사(P1:, P2:)가 섞여 들어올 경우를 대비해 콤마, 마이너스, 숫자만 추출
+        cleaned_msg = ''.join(c for c in raw_msg if c.isdigit() or c == ',' or c == '-')
+        data = cleaned_msg.split(',')
         
-        # 1. 예외 케이스 처리
-        if len(data) == 2:
-            p1_x = int(data[0])
-            p1_y = int(data[1])
-            
-            if 1900 <= p1_x <= 2200:   p1_jx = 0.0
-            elif p1_x < 1900:          p1_jx = (p1_x - 1900) / 1900.0
-            else:                      p1_jx = (p1_x - 2200) / (4095.0 - 2200.0)
-                
-            if 1900 <= p1_y <= 2200:   p1_jy = 0.0
-            elif p1_y < 1900:          p1_jy = (p1_y - 1900) / 1900.0
-            else:                      p1_jy = (p1_y - 2200) / (4095.0 - 2200.0)
-            
-            p1_joy_x, p1_joy_y = p1_jx, p1_jy
-            
-        # 2. 메인 정상 케이스 처리
-        elif len(data) >= 4:
+        # 1. 메인 정상 케이스 처리 (1P, 2P 데이터가 한 패킷에 모두 들어옴)
+        if len(data) >= 4:
             p1_x = int(data[0])
             p1_y = int(data[1])
             p2_x = int(data[2])
@@ -86,8 +73,9 @@ def parse_joystick(raw_msg):
             p1_jx, p1_jy = 0.0, 0.0
             p2_jx, p2_jy = 0.0, 0.0
 
-            # --- [1P 조이스틱 정규화] ---
-            p1_center_min, p1_center_max = 1850, 2250
+            # --- [1P 조이스틱 정규화 & 데드존 확장] ---
+            # 미세하게 흐르는 현상을 막기 위해 중심점 마진을 1800~2300으로 소폭 확장
+            p1_center_min, p1_center_max = 1800, 2300
             
             if p1_center_min <= p1_x <= p1_center_max: p1_jx = 0.0
             elif p1_x < p1_center_min:                 p1_jx = (p1_x - p1_center_min) / float(p1_center_min)
@@ -97,8 +85,8 @@ def parse_joystick(raw_msg):
             elif p1_y < p1_center_min:                 p1_jy = (p1_y - p1_center_min) / float(p1_center_min)
             else:                                      p1_jy = (p1_y - p1_center_max) / float(4095.0 - p1_center_max)
 
-            # --- [2P 조이스틱 정규화] ---
-            p2_center_min, p2_center_max = 1750, 2350
+            # --- [2P 조이스틱 정규화 & 데드존 확장] ---
+            p2_center_min, p2_center_max = 1800, 2300
             
             if p2_center_min <= p2_x <= p2_center_max: p2_jx = 0.0
             elif p2_x < p2_center_min:                 p2_jx = (p2_x - p2_center_min) / float(p2_center_min)
@@ -108,11 +96,27 @@ def parse_joystick(raw_msg):
             elif p2_y < p2_center_min:                 p2_jy = (p2_y - p2_center_min) / float(p2_center_min)
             else:                                      p2_jy = (p2_y - p2_center_max) / float(4095.0 - p2_center_max)
 
-            p1_joy_x, p1_joy_y = p1_jx, p1_jy
-            p2_joy_x, p2_joy_y = p2_jx, p2_jy
+            # 계산 결과가 한계값(-1.0 ~ 1.0)을 넘지 않도록 Clamp 처리
+            p1_joy_x, p1_joy_y = max(-1.0, min(1.0, p1_jx)), max(-1.0, min(1.0, p1_jy))
+            p2_joy_x, p2_joy_y = max(-1.0, min(1.0, p2_jx)), max(-1.0, min(1.0, p2_jy))
                 
+        # 2. 예외 케이스 처리 (1P 데이터만 들어올 때)
+        elif len(data) == 2:
+            p1_x = int(data[0])
+            p1_y = int(data[1])
+            
+            if 1800 <= p1_x <= 2300:   p1_jx = 0.0
+            elif p1_x < 1800:          p1_jx = (p1_x - 1800) / 1800.0
+            else:                      p1_jx = (p1_x - 2300) / (4095.0 - 2300.0)
+                
+            if 1800 <= p1_y <= 2300:   p1_jy = 0.0
+            elif p1_y < 1800:          p1_jy = (p1_y - 1800) / 1800.0
+            else:                      p1_jy = (p1_y - 2300) / (4095.0 - 2300.0)
+            
+            p1_joy_x, p1_joy_y = max(-1.0, min(1.0, p1_jx)), max(-1.0, min(1.0, p1_jy))
+            
     except Exception as e:
-        print(f"[파서 에러] 데이터 변환 에러 발생: {e}")
+        print(f"[파서 에러] 데이터 변환 에러 발생: {e} | 원문: {raw_msg}")
 
 def send_to_esp32(message):
     try:
@@ -141,7 +145,8 @@ def udp_server_thread():
             raw_msg = data.decode("utf-8").strip()
             last_joystick_ip = addr[0]
             
-            if ',' in raw_msg:
+            # 콤마가 여러 개 있거나 순수 조이스틱 숫자로 가득 찬 패킷이면 무조건 파서로 보냄
+            if ',' in raw_msg and not any(cmd in raw_msg for cmd in ["SRT", "STP", "END", "SET", "DRAW", "PLAYER"]):
                 with command_lock:
                     parse_joystick(raw_msg)
             else:
