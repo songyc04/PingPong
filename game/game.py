@@ -58,6 +58,10 @@ def parse_joystick(raw_msg):
    """
    global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y, countdown_active, UI_state
    
+   # [수정] 카운트다운이 활성화되어 있는 동안에는 들어오는 조이스틱 데이터를 완전히 무시합니다.
+   if countdown_active:
+      return
+   
    try:
       data = raw_msg.split(',')
       if len(data) == 2:
@@ -224,6 +228,7 @@ def run_game():
 
    running = True
    while running:
+      dt = clock.tick(60) # 프레임 타임 획득
       mouse_pos = pygame.mouse.get_pos()
       
       for event in pygame.event.get():
@@ -270,20 +275,19 @@ def run_game():
             current_cmd = network_command
             network_command = ""
 
-      # --- [수정] 카운트다운 타이머 실시간 업데이트 및 10002 포트 송신 트리거 ---
+      # --- [수정] 카운트다운 타이머 실시간 업데이트 및 10002 포트 송신 트리거 구조 변경 ---
       if UI_state == "GAME_PLAY" and countdown_active:
-         countdown_timer -= clock.get_time()
+         countdown_timer -= dt
          if countdown_timer <= 0:
             countdown_active = False
             countdown_timer = 0
-            # [수정 사항]: 여기서 하드웨어 값을 0으로 덮어씌우는 오작동 로직을 전면 삭제했습니다.
             print("[시스템] 3초 카운트다운 완료 -> 10002 포트로 SRT 송신. 조이스틱 수신을 활성화합니다.")
-            send_to_esp32("SRT")  # 카운트다운이 정확히 끝난 직후 10002 포트로 쏴줍니다.
+            send_to_esp32("SRT")  # 카운트다운이 정확히 끝난 직후 10002 포트로 송신
             game_timer_active = True
 
       # --- 게임 타이머 경과 시간 계산 및 제한시간 경과 시 END 명령 발생 ---
       if UI_state == "GAME_PLAY" and game_timer_active:
-         game_elapsed_time += clock.get_time()
+         game_elapsed_time += dt
          if game_elapsed_time >= game_time_limit:
             print(f"[게임] {game_time_limit / 1000.0:.0f}초가 경과하여 게임을 종료합니다. (current_cmd = END)")
             current_cmd = "END"
@@ -299,6 +303,8 @@ def run_game():
                ball_active = False  
                p1_cx, p1_cy = int(WIDTH * 0.06), HEIGHT // 2
                p2_cx, p2_cy = WIDTH - int(WIDTH * 0.06), HEIGHT // 2
+               
+               # 입력값 초기화 및 수신 차단 상태 돌입
                p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y = 0.0, 0.0, 0.0, 0.0
                UI_state = "GAME_PLAY"
                game_elapsed_time = 0.0
@@ -307,7 +313,7 @@ def run_game():
                countdown_active = True
                print("[시스템] 10001 포트로부터 SRT 수신 완료. 게임 화면으로 이동하며 3초 카운트다운을 시작합니다.")
          
-         if current_cmd == "STP":
+         elif current_cmd == "STP":
             if UI_state == "GAME_PLAY":
                UI_state = "PAUSE"
                game_timer_active = False
@@ -615,7 +621,6 @@ def run_game():
                   screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, popup_rect.top + int(HEIGHT * 0.12) + (idx * 30)))
 
       pygame.display.flip()
-      clock.tick(60)
 
    tx_socket.close()
    pygame.quit()
