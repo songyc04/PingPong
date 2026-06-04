@@ -257,6 +257,16 @@ def run_game():
          elif current_cmd == "STP":
             if UI_state == "GAME_PLAY": UI_state = "PAUSE"
          elif current_cmd == "END":
+            # [기능 추가] END 수신 시 현재 최고 점수 플레이어 정보를 포맷팅하여 송신
+            if p1_score > p2_score:
+               result_msg = f"PLAYER1,{p1_score}"
+            elif p2_score > p1_score:
+               result_msg = f"PLAYER2,{p2_score}"
+            else:
+               result_msg = f"DRAW,{p1_score}" # 동점일 경우 예외 처리
+            
+            send_to_esp32(result_msg) # 10002번 포트로 결과 데이터 추가 전송
+            
             UI_state = "MAIN_MENU"
             popup_type = ""
          elif current_cmd == "SET":
