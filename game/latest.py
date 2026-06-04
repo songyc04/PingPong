@@ -37,6 +37,23 @@ current_setting_index = 0
 popup_type = ""            
 popup_sub_index = 0        
 
+# --- [네트워크 분리 설정] ---
+ESP32_IP = "192.168.0.207"
+ESP32_SEND_PORT = 10002     # 파이썬이 '송신'할 목적지 포트
+PYTHON_RCV_PORT = 10001     # 파이썬이 '수신'할 본인 포트
+
+# 송신 전용 UDP 소켓 독립 생성
+tx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+def send_to_esp32(message):
+   """
+   10002 포트에서 대기 중인 ESP32로 명령 문자열을 송신합니다.
+   """
+   try:
+      tx_socket.sendto(message.encode('utf-8'), (ESP32_IP, ESP32_SEND_PORT))
+   except Exception as e:
+      print(f"[네트워크] ESP32 송신 오류: {e}")
+
 def parse_joystick(raw_msg):
    """
    [UDP 매핑 알고리즘] “정수,정수,정수,정수”
@@ -81,27 +98,26 @@ def parse_joystick(raw_msg):
 
 def udp_server_thread():
    """
-   UDP 수신 전용 스레드
-   지연 시간(Latency)이 사실상 제로에 가깝게 작동합니다.
+   UDP 수신 전용 스레드 (10001번 포트 강제 바인딩)
    """
    global network_command
-   SERVER_IP = "0.0.0.0"
-   SERVER_PORT = 10001
-
-   # SOCK_DGRAM 으로 변경하여 UDP 소켓 생성
-   udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+   SERVER_IP = "0.0.0.0" # 모든 네트워크 인터페이스에서 수신
+   
+   # 수신 전용 UDP 소켓 독립 생성
+   rx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
    
    try:
-      udp_socket.bind((SERVER_IP, SERVER_PORT))
-      print(f"[네트워크] UDP 서버가 {SERVER_PORT} 포트에서 개방되었습니다.")
+      # 파이썬 프로그램의 포트를 10001로 고정하여 수신을 대기합니다.
+      rx_socket.bind((SERVER_IP, PYTHON_RCV_PORT))
+      print(f"[네트워크] 파이썬 UDP 수신 포트({PYTHON_RCV_PORT})가 정상 개방되었습니다.")
    except Exception as e:
-      print(f"[네트워크] UDP 서버 바인딩 실패: {e}")
+      print(f"[네트워크] UDP 수신 포트 바인딩 실패: {e}")
       return
 
    while True:
       try:
-         # UDP는 accept() 과정 없이 바로 데이터를 패킷 단위로 수신합니다.
-         data, addr = udp_socket.recvfrom(1024)
+         # 10001 포트로 들어오는 패킷을 대기 및 수신
+         data, addr = rx_socket.recvfrom(1024)
          if not data:
             continue
             
@@ -223,7 +239,11 @@ def run_game():
             current_cmd = network_command
             network_command = ""
 
+      # --- 외부 수신 명령 처리 및 ESP32 바이패스 송신 ---
       if current_cmd:
+         # 10001번으로 수신된 명령(SRT, STP 등)을 확인하자마자 10002번 포트의 ESP32로 즉시 던집니다.
+         send_to_esp32(current_cmd)
+         
          if current_cmd == "SRT":
             if UI_state == "MAIN_MENU":
                p1_score, p2_score = 0, 0
@@ -474,6 +494,8 @@ def run_game():
       pygame.display.flip()
       clock.tick(60)
 
+   # 종료 시 소켓 클로즈 안전 조치
+   tx_socket.close()
    pygame.quit()
    sys.exit()
 
