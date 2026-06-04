@@ -122,6 +122,7 @@ def udp_server_thread():
             continue
             
          raw_msg = data.decode("utf-8").strip()
+         print(f"Joysticks: {raw_msg}")
          
          # 쉼표(,) 개수로 데이터 타입 식별
          if raw_msg.count(',') >= 3:
