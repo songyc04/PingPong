@@ -4,7 +4,7 @@ import sys
 def run_client():
    # 파이썬 메인 프로그램(서버)의 IP 및 수신 포트 설정
    # (같은 PC에서 테스트할 경우 '127.0.0.1' 유지, 외부 PC면 실제 IP 입력)
-   SERVER_IP = "127.0.0.1"
+   SERVER_IP = "192.168.0.102"
    SERVER_PORT = 10001
 
    print("==== ESP32 가상 클라이언트 터미널 (UDP 버전) ====")
