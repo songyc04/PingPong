@@ -54,9 +54,8 @@ last_joystick_ip = None
 
 def parse_joystick(raw_msg):
    """
-   [UDP 매핑 알고리즘] 
-   ESP32의 하드웨어 변경(P1=3.3V, P2=5V)에 따른 아날로그 전압 스케일 차이를 완벽히 보정합니다.
-   간섭과 노이즈를 제어하고 두 패들이 완전히 독립적으로 움직이도록 빌드되었습니다.
+   [UDP 매핑 알고리즘 - 데이터 상호 간섭 차단 완벽 보정 버전] 
+   들여쓰기 구조를 전면 개편하여 1P와 2P 데이터를 물리적/논리적으로 완벽히 격리합니다.
    """
    global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y, countdown_active, UI_state
    
@@ -66,7 +65,7 @@ def parse_joystick(raw_msg):
    try:
       data = raw_msg.split(',')
       
-      # 1. 예외 케이스 처리 (만약 데이터가 2개만 들어올 경우 기존 매핑 유지)
+      # 1. 예외 케이스 처리 (만약 데이터가 2개만 들어올 경우 1P만 업데이트하고 종료)
       if len(data) == 2:
          p1_x = int(data[0])
          p1_y = int(data[1])
@@ -81,18 +80,19 @@ def parse_joystick(raw_msg):
          
          p1_joy_x, p1_joy_y = p1_jx, p1_jy
          
-      # 2. 메인 정상 케이스 처리 (P1, P2 데이터가 4개 모두 전송되었을 때)
+      # 2. 메인 정상 케이스 처리 (P1, P2 데이터가 4개 모두 전송되었을 때 블록 안에서만 연산)
       elif len(data) >= 4:
          p1_x = int(data[0])
          p1_y = int(data[1])
          p2_x = int(data[2])
          p2_y = int(data[3])
          
-         # -----------------------------------------------------------------
-         # [보정 변환] 1P 조이스틱 정규화 (ESP32 전원: 3.3V 전용 기준)
-         # 중앙값 오차가 적고 0 ~ 4095 풀 스케일이 깔끔하게 나옵니다.
-         # -----------------------------------------------------------------
-         p1_center_min, p1_center_max = 1850, 2250 # 3.3V에 최적화된 하드웨어 중립 존
+         # 초기화 후 연산 진행하여 잔상 데이터 간섭 방지
+         p1_jx, p1_jy = 0.0, 0.0
+         p2_jx, p2_jy = 0.0, 0.0
+
+         # --- [1P 조이스틱 정규화] ---
+         p1_center_min, p1_center_max = 1850, 2250 
          
          if p1_center_min <= p1_x <= p1_center_max: p1_jx = 0.0
          elif p1_x < p1_center_min:                 p1_jx = (p1_x - p1_center_min) / float(p1_center_min)
@@ -102,12 +102,8 @@ def parse_joystick(raw_msg):
          elif p1_y < p1_center_min:                 p1_jy = (p1_y - p1_center_min) / float(p1_center_min)
          else:                                      p1_jy = (p1_y - p1_center_max) / float(4095.0 - p1_center_max)
 
-         # -----------------------------------------------------------------
-         # [보정 변환] 2P 조이스틱 정규화 (ESP32 전원: 5V 사용에 따른 ADC 변환 보정)
-         # 5V 가변 전압 특성상 중앙값이 위로 치우치거나 상단 포화가 빨리 올 수 있습니다.
-         # 데드존 반경을 약간 더 넓혀 불필요한 떨림과 간섭을 철저하게 잡아냅니다.
-         # -----------------------------------------------------------------
-         p2_center_min, p2_center_max = 1750, 2350 # 5V 인가 시 전압 레벨 변동에 따른 최적화 데드존
+         # --- [2P 조이스틱 정규화 - 들여쓰기 완벽 격리] ---
+         p2_center_min, p2_center_max = 1750, 2350 
          
          if p2_center_min <= p2_x <= p2_center_max: p2_jx = 0.0
          elif p2_x < p2_center_min:                 p2_jx = (p2_x - p2_center_min) / float(p2_center_min)
@@ -117,10 +113,10 @@ def parse_joystick(raw_msg):
          elif p2_y < p2_center_min:                 p2_jy = (p2_y - p2_center_min) / float(p2_center_min)
          else:                                      p2_jy = (p2_y - p2_center_max) / float(4095.0 - p2_center_max)
 
-         # 디버그 검증용 로그 출력 추가
-         print(f"[전압분리 독립 검증] 1P: ({p1_jx:+.2f}, {p1_jy:+.2f}) | 2P: ({p2_jx:+.2f}, {p2_jy:+.2f})")
+         # 실시간 디버그로그 확인
+         # print(f"[독립 검증] 1P: ({p1_jx:+.2f}, {p1_jy:+.2f}) | 2P: ({p2_jx:+.2f}, {p2_jy:+.2f})")
 
-         # 최종 게임 오브젝트 연동 전역 변수 업데이트
+         # 연산 완료된 격리 데이터를 전역변수에 안전하게 동기화
          p1_joy_x, p1_joy_y = p1_jx, p1_jy
          p2_joy_x, p2_joy_y = p2_jx, p2_jy
             
@@ -128,21 +124,14 @@ def parse_joystick(raw_msg):
       print(f"[파서 에러] 데이터 변환 에러 발생: {e}")
 
 def send_to_esp32(message):
-   """
-   10002 포트(LCD/조이스틱 제어 포트)로 데이터 송신
-   """
    try:
       tx_socket.sendto(message.encode('utf-8'), (ESP32_IP, ESP32_SEND_PORT))
    except Exception as e:
       print(f"[네트워크] ESP32 송신 오류: {e}")
 
 def udp_server_thread():
-   """
-   UDP 수신 전용 스레드 (10001번 포트 수신)
-   """
    global network_command, last_joystick_ip
    SERVER_IP = "0.0.0.0"
-   
    rx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
    
    try:
@@ -217,10 +206,17 @@ def run_game():
    p1_score = 0
    p2_score = 0
    
-   title_font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.08))
-   font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.05))
-   btn_font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.035))
-   countdown_font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.18))
+   # 시스템 기본 폰트 대체 처리 혹은 전용 폰트 로드
+   try:
+      title_font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.08))
+      font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.05))
+      btn_font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.035))
+      countdown_font = pygame.font.Font("Moneygraphy-Rounded.otf", int(HEIGHT * 0.18))
+   except:
+      title_font = pygame.font.SysFont("malgungothic", int(HEIGHT * 0.08), bold=True)
+      font = pygame.font.SysFont("malgungothic", int(HEIGHT * 0.05))
+      btn_font = pygame.font.SysFont("malgungothic", int(HEIGHT * 0.035))
+      countdown_font = pygame.font.SysFont("malgungothic", int(HEIGHT * 0.18), bold=True)
 
    btn_width, btn_height = int(WIDTH * 0.22), int(HEIGHT * 0.08)
    btn_start_rect = pygame.Rect(WIDTH // 2 - btn_width // 2, int(HEIGHT * 0.45), btn_width, btn_height)
@@ -293,14 +289,13 @@ def run_game():
          if countdown_timer <= 0:
             countdown_active = False
             countdown_timer = 0
-            print("[시스템] 3초 카운트다운 완료 -> 10002 포트로 SRT 송신. 조이스틱 수신을 활성화합니다.")
+            print("[시스템] 카운트다운 완료 -> SRT 송신.")
             send_to_esp32("SRT")  
             game_timer_active = True
 
       if UI_state == "GAME_PLAY" and game_timer_active:
          game_elapsed_time += dt
          if game_elapsed_time >= game_time_limit:
-            print(f"[게임] {game_time_limit / 1000.0:.0f}초가 경과하여 게임을 종료합니다. (current_cmd = END)")
             current_cmd = "END"
 
       if current_cmd:
@@ -319,7 +314,6 @@ def run_game():
                game_timer_active = False
                countdown_timer = 3000
                countdown_active = True
-               print("[시스템] 10001 포트로부터 SRT 수신 완료. 게임 화면으로 이동하며 3초 카운트다운을 시작합니다.")
          
          elif current_cmd == "STP":
             if UI_state == "GAME_PLAY":
@@ -374,7 +368,6 @@ def run_game():
                      if popup_sub_index < 4:
                         time_limit_idx = popup_sub_index
                         game_time_limit = TIME_LIMITS[time_limit_idx]
-                        print(f"[설정] 게임 제한시간이 {game_time_limit / 1000.0:.0f}초로 변경되었습니다.")
                      else:
                         popup_type = "GAME_CUSTOM"
                         popup_sub_index = 0
@@ -395,6 +388,7 @@ def run_game():
                      popup_sub_index = 0
                   elif current_setting_index == 3:
                      popup_type = "CREATOR"
+                     popup_sub_index = 0
                   elif current_setting_index == 4:
                      UI_state = "MAIN_MENU"
 
@@ -592,41 +586,41 @@ def run_game():
                   pygame.draw.rect(screen, GREEN if popup_sub_index == idx else GRAY, target_rect, border_radius=6)
                   txt_s = btn_font.render(text, True, WHITE)
                   screen.blit(txt_s, (target_rect.centerx - txt_s.get_width() // 2, target_rect.centery - txt_s.get_height() // 2))
-            elif popup_type == "COLOR":
-               p_title = font.render(" [ PADDLE COLOR CUSTOM ] ", True, YELLOW)
-               screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.02)))
-               options_text = [f"P1 COLOR : < {COLOR_NAMES[p1_color_idx]} >", f"P2 COLOR : < {COLOR_NAMES[p2_color_idx]} >", "[ SAVE & EXIT ]", "[ CANCEL ]"]
-               for idx, text in enumerate(options_text):
-                  current_y = popup_rect.top + int(HEIGHT * 0.09) + (idx * int(HEIGHT * 0.05))
-                  if idx == 0: pygame.draw.rect(screen, COLOR_OPTIONS[p1_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25))
-                  elif idx == 1: pygame.draw.rect(screen, COLOR_OPTIONS[p2_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25))
-                  txt_s = btn_font.render(text, True, YELLOW if popup_sub_index == idx else WHITE)
-                  screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
-            elif popup_type == "GAME_CUSTOM":
-               p_title = font.render(" [ GAME CUSTOM ] ", True, YELLOW)
-               screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.03)))
-               options_text = ["1. SETTING TIMES", "[ BACK ]"]
-               for idx, text in enumerate(options_text):
-                  current_y = popup_rect.top + int(HEIGHT * 0.12) + (idx * int(HEIGHT * 0.08))
-                  color_preset = YELLOW if popup_sub_index == idx else WHITE
-                  txt_s = btn_font.render(text, True, color_preset)
-                  screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
-            elif popup_type == "SETTING_TIMES":
-               p_title = font.render(" [ SETTING TIMES ] ", True, YELLOW)
-               screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.02)))
-               options_text = ["10 SECONDS", "30 SECONDS", "1 MINUTE", "2 MINUTES", "[ SAVE & EXIT ]"]
-               for idx, text in enumerate(options_text):
-                  current_y = popup_rect.top + int(HEIGHT * 0.08) + (idx * int(HEIGHT * 0.05))
-                  marker = "* " if idx == time_limit_idx else "  "
-                  color_val = GREEN if idx == time_limit_idx else (YELLOW if popup_sub_index == idx else WHITE)
-                  txt_s = btn_font.render(marker + text, True, color_val)
-                  screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
-            elif popup_type == "CREATOR":
-               p_title = font.render(" [ TEAM CREDITS ] ", True, YELLOW)
-               screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.03)))
-               for idx, line in enumerate(["DEVELOPER: Team Hockey Pong", "HARDWARE: ESP32 Wi-Fi UDP", "GRAPHICS: Pygame Native Framework"]):
-                  txt_s = btn_font.render(line, True, WHITE)
-                  screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, popup_rect.top + int(HEIGHT * 0.12) + (idx * 30)))
+               elif popup_type == "COLOR":
+                  p_title = font.render(" [ PADDLE COLOR CUSTOM ] ", True, YELLOW)
+                  screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.02)))
+                  options_text = [f"P1 COLOR : < {COLOR_NAMES[p1_color_idx]} >", f"P2 COLOR : < {COLOR_NAMES[p2_color_idx]} >", "[ SAVE & EXIT ]", "[ CANCEL ]"]
+                  for idx, text in enumerate(options_text):
+                     current_y = popup_rect.top + int(HEIGHT * 0.09) + (idx * int(HEIGHT * 0.05))
+                     if idx == 0: pygame.draw.rect(screen, COLOR_OPTIONS[p1_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25))
+                     elif idx == 1: pygame.draw.rect(screen, COLOR_OPTIONS[p2_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25))
+                     txt_s = btn_font.render(text, True, YELLOW if popup_sub_index == idx else WHITE)
+                     screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
+               elif popup_type == "GAME_CUSTOM":
+                  p_title = font.render(" [ GAME CUSTOM ] ", True, YELLOW)
+                  screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.03)))
+                  options_text = ["1. SETTING TIMES", "[ BACK ]"]
+                  for idx, text in enumerate(options_text):
+                     current_y = popup_rect.top + int(HEIGHT * 0.12) + (idx * int(HEIGHT * 0.08))
+                     color_preset = YELLOW if popup_sub_index == idx else WHITE
+                     txt_s = btn_font.render(text, True, color_preset)
+                     screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
+               elif popup_type == "SETTING_TIMES":
+                  p_title = font.render(" [ SETTING TIMES ] ", True, YELLOW)
+                  screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.02)))
+                  options_text = ["10 SECONDS", "30 SECONDS", "1 MINUTE", "2 MINUTES", "[ SAVE & EXIT ]"]
+                  for idx, text in enumerate(options_text):
+                     current_y = popup_rect.top + int(HEIGHT * 0.08) + (idx * int(HEIGHT * 0.05))
+                     marker = "* " if idx == time_limit_idx else "  "
+                     color_val = GREEN if idx == time_limit_idx else (YELLOW if popup_sub_index == idx else WHITE)
+                     txt_s = btn_font.render(marker + text, True, color_val)
+                     screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
+               elif popup_type == "CREATOR":
+                  p_title = font.render(" [ TEAM CREDITS ] ", True, YELLOW)
+                  screen.blit(p_title, (popup_rect.centerx - p_title.get_width() // 2, popup_rect.top + int(HEIGHT * 0.03)))
+                  for idx, line in enumerate(["DEVELOPER: Team Hockey Pong", "HARDWARE: ESP32 Wi-Fi UDP", "GRAPHICS: Pygame Native Framework"]):
+                     txt_s = btn_font.render(line, True, WHITE)
+                     screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, popup_rect.top + int(HEIGHT * 0.12) + (idx * 30)))
 
       pygame.display.flip()
 
