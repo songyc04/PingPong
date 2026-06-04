@@ -1,19 +1,23 @@
 /*
- * ESP32 통합 코드 — 키패드(TCP) + 조이스틱(UDP)
+ * ESP32 통합 코드 — 키패드 + 조이스틱 P1 (전체 UDP)
  *
- * [구조]
- *  - 키패드: Ticker 인터럽트로 백그라운드 스캔, 특수키 → TCP로 명령 전송
- *  - 조이스틱: loop()에서 주기적으로 읽기, 상태(state)에 따라 UDP로 데이터 전송
- *  - 상태 수신: UDP 패킷으로 PC → ESP32 상태 변경 명령 수신
- *
- * [통신 포트]
- *  - TCP: PC IP:10001  (키패드 명령 전송 / 단방향)
- *  - UDP: PC IP:10001  (조이스틱 데이터 송신 + 상태 수신 / 양방향)
+ * [키패드 매핑]
+ *  A → SRT (게임 시작)
+ *  B → STP (일시 정지)
+ *  C → SET (설정 모드 진입)
+ *  D → END (종료)
+ *  # → END (종료)
  *
  * [상태 머신]
- *  SRT: 게임플레이 — 조이스틱 좌표를 UDP로 전송
- *  SET: 설정 모드  — 조이스틱 클릭 상태를 UDP로 전송
+ *  SRT: 게임플레이 — P1 조이스틱 XY 좌표를 UDP로 전송
+ *  SET: 설정 모드  — P1 조이스틱 UP/DN/CLK 이벤트를 UDP로 전송
  *  END: 정지       — UDP 데이터 전송 중단
+ *
+ * [SET 모드 이벤트]
+ *  Y < 1000  → "UP"
+ *  Y > 3000  → "DN"
+ *  버튼 클릭 → "CLK"
+ *  상태 변화 시 1회만 전송 (연속 전송 방지)
  */
 
 #include <WiFi.h>
@@ -24,11 +28,10 @@
 // ─────────────────────────────────────────
 //  네트워크 설정
 // ─────────────────────────────────────────
-const char*    ssid      = "fusion";
-const char*    password  = "12345678";
-const char*    serverIP  = "192.168.0.114";  // PC의 IPv4 주소
-const uint16_t TCP_PORT  = 10001;
-const uint16_t UDP_PORT  = 10001;
+const char*    ssid     = "fusion";
+const char*    password = "12345678";
+const char*    serverIP = "192.168.0.102";  // PC의 IPv4 주소
+const uint16_t UDP_PORT = 10001;
 
 // ─────────────────────────────────────────
 //  키패드 설정 (4×4)
@@ -49,25 +52,34 @@ byte colPins[COLS] = {23, 22, 21, 19};
 Keypad customKeypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);
 
 // ─────────────────────────────────────────
-//  조이스틱 핀 설정
+//  조이스틱 P1 핀 설정
 // ─────────────────────────────────────────
-const int P1_X  = 34;  const int P1_Y  = 35;  const int P1_SW = 32;
-const int P2_X  = 36;  const int P2_Y  = 39;  const int P2_SW = 33;
+const int P1_X  = 34;
+const int P1_Y  = 35;
+const int P1_SW = 32;
+
+// ─────────────────────────────────────────
+//  SET 모드 임계값 (ADC 0~4095, 중앙 ~2048)
+// ─────────────────────────────────────────
+const int JOY_UP_THRESHOLD = 1000;
+const int JOY_DN_THRESHOLD = 3000;
 
 // ─────────────────────────────────────────
 //  통신 객체
 // ─────────────────────────────────────────
-WiFiClient tcpClient;
-WiFiUDP    udp;
+WiFiUDP udp;
 
 // ─────────────────────────────────────────
 //  전역 변수
 // ─────────────────────────────────────────
-Ticker           keypadTimer;
-volatile char    pressedKey        = 0;   // 인터럽트에서 채워지는 키값
-String           state             = "SRT"; // 현재 상태 (SRT / SET / END)
-unsigned long    lastTcpAttempt    = 0;
-const uint32_t   TCP_RETRY_MS      = 5000; // TCP 재연결 주기
+Ticker        keypadTimer;
+volatile char pressedKey = 0;      // 인터럽트에서 채워지는 키값
+String        state      = "SRT";  // 현재 상태 (SRT / SET / END)
+
+// SET 모드 이전 상태 (연속 전송 방지용)
+// 0=중립, 1=UP, -1=DN
+int  prevDir = 0;
+bool prevBtn = false;
 
 // ─────────────────────────────────────────
 //  인터럽트 핸들러 — 키패드 스캔 (30ms마다)
@@ -77,6 +89,15 @@ void IRAM_ATTR onKeypadScan() {
   if (key) {
     pressedKey = key;
   }
+}
+
+// ─────────────────────────────────────────
+//  UDP 전송 헬퍼
+// ─────────────────────────────────────────
+void udpSend(const String& msg) {
+  udp.beginPacket(serverIP, UDP_PORT);
+  udp.print(msg + "\n");
+  udp.endPacket();
 }
 
 // ─────────────────────────────────────────
@@ -102,18 +123,13 @@ void setup() {
   Serial.begin(115200);
   delay(10);
 
-  // 조이스틱 버튼 핀 설정
   pinMode(P1_SW, INPUT_PULLUP);
-  pinMode(P2_SW, INPUT_PULLUP);
 
-  // Wi-Fi 연결
   connectWiFi();
 
-  // UDP 리스너 시작 (PC → ESP32 상태 명령 수신용)
   udp.begin(UDP_PORT);
-  Serial.println("UDP 리스너 시작 완료.");
+  Serial.println("UDP 소켓 시작 완료.");
 
-  // Ticker 인터럽트 기반 키패드 스캔 시작 (30ms 주기)
   keypadTimer.attach(0.03, onKeypadScan);
   Serial.println("키패드 타이머 인터럽트 가동.");
 }
@@ -122,30 +138,16 @@ void setup() {
 //  loop
 // ─────────────────────────────────────────
 void loop() {
-  unsigned long now = millis();
 
   // ── 1. Wi-Fi 끊김 감지 및 자동 재연결 ──────────────────
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("[경고] Wi-Fi 끊김. 재연결 시도...");
     connectWiFi();
-    udp.begin(UDP_PORT); // UDP 소켓 재개
+    udp.begin(UDP_PORT);
     state = "SRT";
   }
 
-  // ── 2. TCP 클라이언트 자동 재연결 (5초 간격) ──────────
-  if (!tcpClient.connected()) {
-    if (now - lastTcpAttempt >= TCP_RETRY_MS) {
-      lastTcpAttempt = now;
-      Serial.println("[TCP] 서버 연결 시도 중...");
-      if (tcpClient.connect(serverIP, TCP_PORT)) {
-        Serial.println("[TCP] 서버 연결 성공!");
-      } else {
-        Serial.println("[TCP] 연결 실패. (UDP/키패드는 계속 동작)");
-      }
-    }
-  }
-
-  // ── 3. UDP 상태 변경 명령 수신 (PC → ESP32) ───────────
+  // ── 2. UDP 상태 변경 명령 수신 (PC → ESP32) ───────────
   int packetSize = udp.parsePacket();
   if (packetSize > 0) {
     char buf[64] = {0};
@@ -162,87 +164,83 @@ void loop() {
     else if (cmd == "STP" || cmd == "END") state = "END";
   }
 
-  // ── 4. 키패드 인터럽트 처리 → TCP 명령 전송 ──────────
+  // ── 3. 키패드 인터럽트 처리 → UDP 명령 전송 ──────────
   if (pressedKey != 0) {
     char key = pressedKey;
-    pressedKey = 0;  // 플래그 즉시 초기화
+    pressedKey = 0;
 
     Serial.print("[키패드] 입력 감지: ");
     Serial.println(key);
 
-    // 특수 키 → 명령 문자열 매핑
     String command = "";
     switch (key) {
       case 'A': command = "SRT"; break;
       case 'B': command = "STP"; break;
       case 'C': command = "SET"; break;
-      case 'D': command = "CUS"; break;
+      case 'D': command = "END"; break;
       case '#': command = "END"; break;
-      // 숫자/기호 키는 필요에 따라 아래에 추가
-      // default: command = String(key); break;
     }
 
     if (command != "") {
-      // 로컬 상태도 즉시 반영 (SRT/SET/END 계열 키인 경우)
-      if (command == "SRT") state = "SRT";
-      else if (command == "SET") state = "SET";
+      if      (command == "SRT") state = "SRT";
+      else if (command == "SET") {
+        state = "SET";
+        prevDir = 0;       // SET 진입 시 이전 상태 초기화
+        prevBtn = false;
+      }
       else if (command == "STP" || command == "END") state = "END";
 
-      if (tcpClient.connected()) {
-        Serial.print("[TCP 송신] ESP32 → PC: ");
-        Serial.println(command);
-        tcpClient.print(command + "\n");
-      } else {
-        Serial.println("[경고] TCP 미연결 — 명령 전송 불가: " + command);
-      }
+      udpSend(command);
+      Serial.print("[UDP 송신] ESP32 → PC: ");
+      Serial.println(command);
     }
   }
 
-  // ── 5. TCP 수신 응답 처리 (PC → ESP32) ───────────────
-  if (tcpClient.connected() && tcpClient.available() > 0) {
-    String response = tcpClient.readStringUntil('\n');
-    response.trim();
-    Serial.print("[TCP 수신] PC → ESP32: ");
-    Serial.println(response);
-  }
-
-  // ── 6. 상태가 END면 조이스틱 전송 건너뜀 ─────────────
+  // ── 4. 상태가 END면 조이스틱 전송 건너뜀 ─────────────
   if (state == "END") {
     delay(50);
     return;
   }
 
-  // ── 7. 조이스틱 데이터 읽기 (10회 평균으로 노이즈 제거) ─
-  long sumP1X = 0, sumP1Y = 0, sumP2X = 0, sumP2Y = 0;
+  // ── 5. P1 조이스틱 데이터 읽기 (10회 평균) ───────────
+  long sumX = 0, sumY = 0;
   for (int i = 0; i < 10; i++) {
-    sumP1X += analogRead(P1_X);  sumP1Y += analogRead(P1_Y);
-    sumP2X += analogRead(P2_X);  sumP2Y += analogRead(P2_Y);
+    sumX += analogRead(P1_X);
+    sumY += analogRead(P1_Y);
   }
-  int avgP1X = sumP1X / 10;  int avgP1Y = sumP1Y / 10;
-  int avgP2X = sumP2X / 10;  int avgP2Y = sumP2Y / 10;
+  int avgX = sumX / 10;
+  int avgY = sumY / 10;
 
-  // ── 8. 상태에 따른 UDP 데이터 구성 및 전송 ───────────
-  String sendData = "";
-
+  // ── 6. 상태에 따른 UDP 데이터 전송 ───────────────────
   if (state == "SRT") {
-    // 게임플레이: 정수 좌표 4개 전송
-    sendData = String(avgP1X) + "," + String(avgP1Y) + "," +
-               String(avgP2X) + "," + String(avgP2Y);
+    // 게임플레이: XY 좌표 전송
+    String sendData = String(avgX) + "," + String(avgY);
+    udpSend(sendData);
+    Serial.print("[UDP 송신-SRT] ");
+    Serial.println(sendData);
+    delay(20);
   }
+
   else if (state == "SET") {
-    // 설정 모드: 클릭 상태 전송
-    String p1Clk = (digitalRead(P1_SW) == LOW) ? "O" : "";
-    String p2Clk = (digitalRead(P2_SW) == LOW) ? "O" : "";
-    sendData = "P1CLK:" + p1Clk + "|P2CLK:" + p2Clk;
+    // UP / DN 방향 감지 (상태 변화 시 1회 전송)
+    int curDir = 0;
+    if      (avgY < JOY_UP_THRESHOLD) curDir =  1;  // UP
+    else if (avgY > JOY_DN_THRESHOLD) curDir = -1;  // DN
+
+    if (curDir != prevDir) {
+      if      (curDir ==  1) { udpSend("UP");  Serial.println("[UDP 송신-SET] UP"); }
+      else if (curDir == -1) { udpSend("DN");  Serial.println("[UDP 송신-SET] DN"); }
+      prevDir = curDir;
+    }
+
+    // 버튼 클릭 감지 (눌리는 순간 1회 전송)
+    bool curBtn = (digitalRead(P1_SW) == LOW);
+    if (curBtn && !prevBtn) {
+      udpSend("CLK");
+      Serial.println("[UDP 송신-SET] CLK");
+    }
+    prevBtn = curBtn;
+
+    delay(50);
   }
-
-  // UDP 전송
-  udp.beginPacket(serverIP, UDP_PORT);
-  udp.println(sendData);
-  udp.endPacket();
-
-  Serial.print("[UDP 송신-" + state + "] ");
-  Serial.println(sendData);
-
-  delay(20); // 20ms 주기 = 초당 50회 전송
 }
