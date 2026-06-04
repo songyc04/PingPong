@@ -127,7 +127,6 @@ void loop()
 
     if (response == "SRT")
     {
-      //showCountDown();
       showRunning();
     }
     else if (response == "STP")
