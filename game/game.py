@@ -54,8 +54,7 @@ last_joystick_ip = None
 
 def parse_joystick(raw_msg):
    """
-   [UDP 매핑 알고리즘] “정수,정수,정수,정수” 또는 “정수,정수”
-   중립 범위: 2630 ~ 2750, 최솟값 0, 최댓값 4095
+   [UDP 매핑 알고리즘] ESP32가 활성화되어 전송한 조이스틱 데이터를 처리합니다.
    """
    global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y, countdown_active, UI_state
    
@@ -74,10 +73,8 @@ def parse_joystick(raw_msg):
          elif p1_y < 2630:          p1_jy = (p1_y - 2630) / 2630.0
          else:                      p1_jy = (p1_y - 2750) / (4095.0 - 2750.0)
          
-         # 오직 터미널 실시간 출력만 3초 카운트다운이 끝난 후에 작동하도록 제어
-         if UI_state == "GAME_PLAY" and not countdown_active:
-            print(f"[UDP 수신(2P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | Raw: {raw_msg}")
-            
+         # 터미널 실시간 출력 및 패들 변수 업데이트
+         print(f"[UDP 수신(2P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | Raw: {raw_msg}")
          p1_joy_x, p1_joy_y = p1_jx, p1_jy
          
       elif len(data) >= 4:
@@ -104,9 +101,7 @@ def parse_joystick(raw_msg):
          elif p2_y < 2630:          p2_jy = (p2_y - 2630) / 2630.0
          else:                      p2_jy = (p2_y - 2750) / (4095.0 - 2750.0)
 
-         # 오직 터미널 실시간 출력만 3초 카운트다운이 끝난 후에 작동하도록 제어
-         if UI_state == "GAME_PLAY" and not countdown_active:
-            print(f"[UDP 수신(4P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | P2: ({p2_jx:+.2f}, {p2_jy:+.2f}) | Raw: {raw_msg}")
+         print(f"[UDP 수신(4P)] P1: ({p1_jx:+.2f}, {p1_jy:+.2f}) | P2: ({p2_jx:+.2f}, {p2_jy:+.2f}) | Raw: {raw_msg}")
 
          # 변수 업데이트
          p1_joy_x, p1_joy_y = p1_jx, p1_jy
@@ -117,19 +112,16 @@ def parse_joystick(raw_msg):
 
 def send_to_esp32(message):
    """
-   10002 포트에서 대기 중인 LCD ESP32와, 최근 패킷을 송신한 조이스틱/키패드 ESP32(10001 포트)로 명령 문자열을 송신합니다.
+   10002 포트(LCD/조이스틱 제어 포트)로 데이터 송신
    """
-   global last_joystick_ip
    try:
       tx_socket.sendto(message.encode('utf-8'), (ESP32_IP, ESP32_SEND_PORT))
-      if last_joystick_ip:
-         tx_socket.sendto(message.encode('utf-8'), (last_joystick_ip, PYTHON_RCV_PORT))
    except Exception as e:
       print(f"[네트워크] ESP32 송신 오류: {e}")
 
 def udp_server_thread():
    """
-   UDP 수신 전용 스레드 (10001번 포트 강제 바인딩)
+   UDP 수신 전용 스레드 (10001번 포트 수신)
    """
    global network_command, last_joystick_ip
    SERVER_IP = "0.0.0.0"
@@ -156,7 +148,7 @@ def udp_server_thread():
             with command_lock:
                parse_joystick(raw_msg)
          else:
-            print(f"Command: {raw_msg}")
+            print(f"Command 수신: {raw_msg}")
             with command_lock:
                network_command = raw_msg
                
@@ -278,15 +270,15 @@ def run_game():
             current_cmd = network_command
             network_command = ""
 
-      # --- 카운트다운 타이머 업데이트 ---
+      # --- [수정] 카운트다운 타이머 실시간 업데이트 및 10002 포트 송신 트리거 ---
       if UI_state == "GAME_PLAY" and countdown_active:
          countdown_timer -= clock.get_time()
          if countdown_timer <= 0:
             countdown_active = False
             countdown_timer = 0
-            p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y = 0.0, 0.0, 0.0, 0.0
-            print("[시스템] 3초 카운트다운 종료. 조이스틱 신호를 실시간 출력합니다.")
-            send_to_esp32("SRT")  
+            # [수정 사항]: 여기서 하드웨어 값을 0으로 덮어씌우는 오작동 로직을 전면 삭제했습니다.
+            print("[시스템] 3초 카운트다운 완료 -> 10002 포트로 SRT 송신. 조이스틱 수신을 활성화합니다.")
+            send_to_esp32("SRT")  # 카운트다운이 정확히 끝난 직후 10002 포트로 쏴줍니다.
             game_timer_active = True
 
       # --- 게임 타이머 경과 시간 계산 및 제한시간 경과 시 END 명령 발생 ---
@@ -296,10 +288,11 @@ def run_game():
             print(f"[게임] {game_time_limit / 1000.0:.0f}초가 경과하여 게임을 종료합니다. (current_cmd = END)")
             current_cmd = "END"
 
-      # --- 외부 수신 명령 처리 및 ESP32 바이패스 송신 ---
+      # --- 외부 10001 포트 수신 명령 처리 분기 ---
       if current_cmd:
          if current_cmd == "SRT":
-            if UI_state == "MAIN_MENU":
+            # 10001 포트로 SRT가 전송되면 무조건 게임 화면으로 이동 후 3초 카운트다운을 개시합니다.
+            if UI_state in ["MAIN_MENU", "PAUSE"]:
                p1_score, p2_score = 0, 0
                ball_x = WIDTH // 2 - ball_size // 2
                ball_y = HEIGHT // 2 - ball_size // 2
@@ -312,13 +305,7 @@ def run_game():
                game_timer_active = False
                countdown_timer = 3000
                countdown_active = True
-            elif UI_state == "PAUSE":
-               UI_state = "GAME_PLAY"
-               game_timer_active = False
-               countdown_timer = 3000
-               countdown_active = True
-         else:
-            send_to_esp32(current_cmd)
+               print("[시스템] 10001 포트로부터 SRT 수신 완료. 게임 화면으로 이동하며 3초 카운트다운을 시작합니다.")
          
          if current_cmd == "STP":
             if UI_state == "GAME_PLAY":
@@ -397,8 +384,7 @@ def run_game():
                   elif current_setting_index == 4:
                      UI_state = "MAIN_MENU"
 
-      # --- [수정 핵심] 패들 실시간 이동 판정 조건 완화 ---
-      # 카운트다운 진행 여부(countdown_active)와 상관없이 GAME_PLAY 상태라면 패들을 무조건 이동시킵니다.
+      # --- 패들 실시간 업데이트 ---
       if UI_state == "GAME_PLAY":
          keys = pygame.key.get_pressed()
          
@@ -434,7 +420,7 @@ def run_game():
          if p2_cx < center_line_x + p2_radius: p2_cx = center_line_x + p2_radius
          if p2_cx > WIDTH - p2_radius: p2_cx = WIDTH - p2_radius
 
-         # 공 역학 물리 연산 (카운트다운 중이 아닐 때만 공이 움직이도록 보호)
+         # 공 역학 (카운트다운 완료 후에만 동작)
          if ball_active and not countdown_active:
             ball_x += ball_speed_x
             ball_y += ball_speed_y
@@ -540,13 +526,11 @@ def run_game():
          score_text = font.render(f"{p1_score}   :   {p2_score}", True, WHITE)
          screen.blit(score_text, (WIDTH // 2 - score_text.get_width() // 2, int(HEIGHT * 0.04)))
          
-         # 경과 시간 표시 UI
          elapsed_sec = game_elapsed_time / 1000.0
          limit_sec = game_time_limit / 1000.0
          time_text = btn_font.render(f"TIME: {elapsed_sec:.1f} / {limit_sec:.0f}s", True, YELLOW)
          screen.blit(time_text, (WIDTH // 2 - time_text.get_width() // 2, int(HEIGHT * 0.12)))
 
-         # 카운트다운 표시
          if UI_state == "GAME_PLAY" and countdown_active:
             count_val = math.ceil(countdown_timer / 1000.0)
             if count_val > 0:
