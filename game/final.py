@@ -404,6 +404,8 @@ def run_game():
 	goal_sound_channel = None
 	goal_sound_playing = False
 
+	detect_sound = pygame.mixer.Sound("sound/detect.mp3")
+
 	info = pygame.display.Info()
 	WIDTH, HEIGHT = info.current_w, info.current_h
 
@@ -864,6 +866,8 @@ def run_game():
 			min_dist1 = p1_radius + ball_radius
 
 			if distance1 < min_dist1:
+				if sound_enabled:
+					detect_sound.play()
 				if not ball_active:
 					ball_active = True
 					ball_speed_x = abs(base_ball_speed_x)
@@ -888,6 +892,8 @@ def run_game():
 			min_dist2 = p2_radius + ball_radius
 
 			if distance2 < min_dist2:
+				if sound_enabled:
+					detect_sound.play()
 				if not ball_active:
 					ball_active = True
 					ball_speed_x = -abs(base_ball_speed_x)
