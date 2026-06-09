@@ -262,20 +262,10 @@ def parse_joystick_value(raw_msg, player):
 			else:
 				p2_raw_x, p2_raw_y = x, y
 
-			# 디버그: 조이스틱 원시 값 즉시 출력
 			print(f"[조이스틱 디버그] {p1_raw_x}:{p1_raw_y}:{p2_raw_x}:{p2_raw_y}")
 
-			jx, jy = 0.0, 0.0
-			x_center_min, x_center_max = 480, 520
-			y_center_min, y_center_max = 1800, 1850
-
-			if x_center_min <= x <= x_center_max: jx = 0.0
-			elif x < x_center_min:                jx = (x - x_center_min) / float(x_center_min)
-			else:                                 jx = (x - x_center_max) / float(4095.0 - x_center_max)
-
-			if y_center_min <= y <= y_center_max: jy = 0.0
-			elif y < y_center_min:                jy = (y - y_center_min) / float(y_center_min)
-			else:                                 jy = (y - y_center_max) / float(4095.0 - y_center_max)
+			jx = (x - 2048) / 2048.0
+			jy = (y - 2048) / 2048.0
 
 			jx = max(-1.0, min(1.0, jx))
 			jy = max(-1.0, min(1.0, jy))
@@ -400,11 +390,14 @@ def run_game():
 	# 골 사운드 파일 로드
 	goal_sound_01 = pygame.mixer.Sound("sound/goal_01.mp3")
 	goal_sound_02 = pygame.mixer.Sound("sound/goal_02.mp3")
+	goal_sound_01.set_volume(0.5)
+	goal_sound_02.set_volume(0.5)
 	goal_sounds = [goal_sound_01, goal_sound_02]
 	goal_sound_channel = None
 	goal_sound_playing = False
 
 	detect_sound = pygame.mixer.Sound("sound/detect.mp3")
+	detect_sound.set_volume(0.5)
 
 	info = pygame.display.Info()
 	WIDTH, HEIGHT = info.current_w, info.current_h
@@ -510,6 +503,7 @@ def run_game():
 		# 배경음악 재생 (새 게임 시작 시에만)
 		bgm_choice = random.choice(bgm_files)
 		pygame.mixer.music.load(bgm_choice)
+		pygame.mixer.music.set_volume(0.5)
 		pygame.mixer.music.play(-1)  # -1은 무한 반복
 		print(f"[BGM] 배경음악 재생 시작: {bgm_choice}")
 
