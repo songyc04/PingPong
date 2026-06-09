@@ -4,6 +4,7 @@ import socket
 import threading
 import math
 import random
+import time
 
 # --- 색상값 정의 ---
 WHITE = (255, 255, 255)
@@ -53,6 +54,9 @@ popup_sub_index = 0
 
 # --- 카운트다운 및 입력 제어 플래그 ---
 countdown_active = False
+p1_srt_time = 0.0
+p2_srt_time = 0.0
+SRT_WINDOW_MS = 1000
 
 # --- [ESP32 듀얼 보드 네트워크 설정] ---
 P1_ESP_IP = "192.168.0.101"       # ★ P1 ESP32 보드의 IP 주소를 입력
@@ -345,6 +349,7 @@ def run_game():
 	global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
 	global game_time_limit, time_limit_idx, countdown_active
 	global p1_command, p2_command
+	global p1_srt_time, p2_srt_time
 
 	pygame.init()
 
@@ -413,6 +418,7 @@ def run_game():
 	game_elapsed_time = 0.0
 	game_timer_active = False
 	countdown_timer = 0
+	paused_from_game = False
 
 	particles = []
 	stars = [Star(WIDTH, HEIGHT) for _ in range(120)]
@@ -444,15 +450,26 @@ def run_game():
 		particles.clear()
 		ball_trail.clear()
 
+	def resume_game():
+		global countdown_active, p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
+		nonlocal countdown_timer, game_timer_active
+		countdown_timer = 3000
+		countdown_active = True
+		game_timer_active = False
+		p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y = 0.0, 0.0, 0.0, 0.0
+		ball_trail.clear()
+
 	def end_game():
 		if p1_score > p2_score:
-			result_msg = f"PLAYER1,{p1_score}"
+			send_to_p1("You Win!")
+			send_to_p2("You Lose...")
 		elif p2_score > p1_score:
-			result_msg = f"PLAYER2,{p2_score}"
+			send_to_p1("You Lose...")
+			send_to_p2("You Win!")
 		else:
-			result_msg = f"DRAW,{p1_score}"
+			send_to_all("DRAW -_-")
 
-		send_to_all(result_msg)
+		send_to_all("END")
 		return "MAIN_MENU"
 
 	running = True
@@ -485,8 +502,13 @@ def run_game():
 					if popup_type:
 						popup_type = ""
 					elif UI_state in ["GAME_PLAY", "PAUSE", "SETTINGS"]:
-						UI_state = "MAIN_MENU"
-						countdown_active = False
+						if UI_state == "SETTINGS" and paused_from_game:
+							resume_game()
+							UI_state = "GAME_PLAY"
+						else:
+							UI_state = "MAIN_MENU"
+							countdown_active = False
+						paused_from_game = False
 					else:
 						running = False
 			elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -505,7 +527,12 @@ def run_game():
 							running = False
 					elif UI_state == "SETTINGS":
 						if btn_back_rect.collidepoint(mouse_pos):
-							UI_state = "MAIN_MENU"
+							if paused_from_game:
+								resume_game()
+								UI_state = "GAME_PLAY"
+							else:
+								UI_state = "MAIN_MENU"
+							paused_from_game = False
 
 		if not running:
 			break
@@ -522,13 +549,31 @@ def run_game():
 				p2_command = ""
 
 		if UI_state == "MAIN_MENU":
-			if p1_cmd == "UP":
-				reset_game()
-				UI_state = "GAME_PLAY"
-			elif p1_cmd == "CLK":
+			if p1_cmd == "SET":
 				UI_state = "SETTINGS"
 				current_setting_index = 0
 				popup_type = ""
+				send_to_all("SET")
+
+			if p1_cmd == "SRT":
+				p1_srt_time = time.time() * 1000
+				if p2_srt_time > 0 and abs(p1_srt_time - p2_srt_time) <= SRT_WINDOW_MS:
+					reset_game()
+					UI_state = "GAME_PLAY"
+					p1_srt_time = 0.0
+					p2_srt_time = 0.0
+				else:
+					p2_srt_time = 0.0
+
+			if p2_cmd == "SRT":
+				p2_srt_time = time.time() * 1000
+				if p1_srt_time > 0 and abs(p1_srt_time - p2_srt_time) <= SRT_WINDOW_MS:
+					reset_game()
+					UI_state = "GAME_PLAY"
+					p1_srt_time = 0.0
+					p2_srt_time = 0.0
+				else:
+					p1_srt_time = 0.0
 
 		elif UI_state in ["GAME_PLAY", "PAUSE"]:
 			if UI_state == "GAME_PLAY" and countdown_active:
@@ -550,13 +595,26 @@ def run_game():
 					popup_type = ""
 					countdown_active = False
 
-			if UI_state == "GAME_PLAY" and p2_cmd == "CLK":
-				result = end_game()
-				UI_state = result
+			if p1_cmd == "SET":
+				if UI_state == "GAME_PLAY":
+					UI_state = "PAUSE"
+					game_timer_active = False
+					countdown_active = False
+				paused_from_game = True
+				UI_state = "SETTINGS"
+				current_setting_index = 0
 				popup_type = ""
-				game_elapsed_time = 0.0
-				game_timer_active = False
-				countdown_active = False
+				send_to_all("SET")
+
+			if p2_cmd == "END":
+				if UI_state in ["GAME_PLAY", "PAUSE"]:
+					result = end_game()
+					UI_state = result
+					popup_type = ""
+					game_elapsed_time = 0.0
+					game_timer_active = False
+					countdown_active = False
+					send_to_all("END")
 
 			elif p2_cmd == "STP":
 				if UI_state == "GAME_PLAY":
@@ -567,8 +625,13 @@ def run_game():
 
 		elif UI_state == "SETTINGS":
 			if p1_cmd == "SET" or (p1_cmd == "CLK" and current_setting_index == 4 and not popup_type):
-				if current_setting_index == 4:
-					UI_state = "MAIN_MENU"
+				if current_setting_index == 4 or p1_cmd == "SET":
+					if paused_from_game:
+						resume_game()
+						UI_state = "GAME_PLAY"
+					else:
+						UI_state = "MAIN_MENU"
+					paused_from_game = False
 					p1_cmd = ""
 
 			if popup_type:
@@ -621,7 +684,12 @@ def run_game():
 						popup_type = "CREATOR"
 						popup_sub_index = 0
 					elif current_setting_index == 4:
-						UI_state = "MAIN_MENU"
+						if paused_from_game:
+							resume_game()
+							UI_state = "GAME_PLAY"
+						else:
+							UI_state = "MAIN_MENU"
+						paused_from_game = False
 
 		if UI_state == "GAME_PLAY" and not countdown_active:
 			keys = pygame.key.get_pressed()

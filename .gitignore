@@ -1,0 +1,9 @@
+# Python 컴파일 파일 및 캐시 폴더 제외
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 빌드 및 시스템 파일 (선택사항)
+.DS_Store
+Thumbs.db
