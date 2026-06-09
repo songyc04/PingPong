@@ -59,8 +59,8 @@ p2_srt_time = 0.0
 SRT_WINDOW_MS = 1000
 
 # --- [ESP32 듀얼 보드 네트워크 설정] ---
-P1_ESP_IP = "192.168.0.101"       # ★ P1 ESP32 보드의 IP 주소를 입력
-P2_ESP_IP = "192.168.0.102"       # ★ P2 ESP32 보드의 IP 주소를 입력
+P1_ESP_IP = "192.168.0.200"       # ★ P1 ESP32 보드의 IP 주소를 입력
+P2_ESP_IP = "192.168.0.154"       # ★ P2 ESP32 보드의 IP 주소를 입력
 
 P1_RCV_PORT = 10001               # P1 ESP -> Python 수신 포트
 P2_RCV_PORT = 10002               # P2 ESP -> Python 수신 포트
@@ -429,6 +429,7 @@ def run_game():
 	countdown_scale = 1.0
 
 	def reset_game():
+		global countdown_active
 		nonlocal p1_score, p2_score, ball_x, ball_y, ball_active
 		nonlocal p1_cx, p1_cy, p2_cx, p2_cy
 		nonlocal ball_speed_x, ball_speed_y
