@@ -392,6 +392,17 @@ def run_game():
 	global p1_srt_time, p2_srt_time
 
 	pygame.init()
+	pygame.mixer.init()
+	
+	# 배경음악 파일 목록
+	bgm_files = ["sound/back_01.mp3", "sound/back_02.mp3"]
+	
+	# 골 사운드 파일 로드
+	goal_sound_01 = pygame.mixer.Sound("sound/goal_01.mp3")
+	goal_sound_02 = pygame.mixer.Sound("sound/goal_02.mp3")
+	goal_sounds = [goal_sound_01, goal_sound_02]
+	goal_sound_channel = None
+	goal_sound_playing = False
 
 	info = pygame.display.Info()
 	WIDTH, HEIGHT = info.current_w, info.current_h
@@ -493,6 +504,12 @@ def run_game():
 		goal_flash_timer = 0
 		particles.clear()
 		ball_trail.clear()
+		
+		# 배경음악 재생 (새 게임 시작 시에만)
+		bgm_choice = random.choice(bgm_files)
+		pygame.mixer.music.load(bgm_choice)
+		pygame.mixer.music.play(-1)  # -1은 무한 반복
+		print(f"[BGM] 배경음악 재생 시작: {bgm_choice}")
 
 	def resume_game():
 		global countdown_active, p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
@@ -502,6 +519,9 @@ def run_game():
 		game_timer_active = False
 		p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y = 0.0, 0.0, 0.0, 0.0
 		ball_trail.clear()
+		# BGM 재개 (일시정지 상태에서 복귀이므로)
+		pygame.mixer.music.unpause()
+		print("[BGM] 배경음악 재개")
 
 	def end_game():
 		nonlocal game_over_timer, game_over_winner
@@ -519,6 +539,9 @@ def run_game():
 
 		send_to_all("END")
 		game_over_timer = 3000  # 3초
+		# 게임 종료 시 BGM 정지
+		pygame.mixer.music.stop()
+		print("[BGM] 배경음악 정지 (게임 종료)")
 		return "GAME_OVER"
 
 	running = True
@@ -560,6 +583,9 @@ def run_game():
 						else:
 							UI_state = "MAIN_MENU"
 							countdown_active = False
+							# 메인 메뉴로 돌아갈 때 BGM 정지
+							pygame.mixer.music.stop()
+							print("[BGM] 배경음악 정지 (메인 메뉴)")
 						paused_from_game = False
 					else:
 						running = False
@@ -586,6 +612,9 @@ def run_game():
 								UI_state = "GAME_PLAY"
 							else:
 								UI_state = "MAIN_MENU"
+								# 메인 메뉴로 돌아갈 때 BGM 정지
+								pygame.mixer.music.stop()
+								print("[BGM] 배경음악 정지 (메인 메뉴)")
 							paused_from_game = False
 
 		if not running:
@@ -641,7 +670,7 @@ def run_game():
 					send_to_all("SRT")
 					game_timer_active = True
 
-			if UI_state == "GAME_PLAY" and game_timer_active:
+			if UI_state == "GAME_PLAY" and game_timer_active and not goal_sound_playing:
 				game_elapsed_time += dt
 				if game_elapsed_time >= game_time_limit:
 					result = end_game()
@@ -659,6 +688,9 @@ def run_game():
 				current_setting_index = 0
 				popup_type = ""
 				send_to_all("SET")
+				# 설정창 진입 시 BGM 일시정지
+				pygame.mixer.music.pause()
+				print("[BGM] 배경음악 일시정지 (설정창 진입)")
 
 			if p2_cmd == "END":
 				if UI_state in ["GAME_PLAY", "PAUSE"]:
@@ -687,6 +719,9 @@ def run_game():
 						UI_state = "GAME_PLAY"
 					else:
 						UI_state = "MAIN_MENU"
+						# 메인 메뉴로 돌아갈 때 BGM 정지
+						pygame.mixer.music.stop()
+						print("[BGM] 배경음악 정지 (메인 메뉴)")
 					paused_from_game = False
 					p1_cmd = ""
 
@@ -747,6 +782,9 @@ def run_game():
 							UI_state = "GAME_PLAY"
 						else:
 							UI_state = "MAIN_MENU"
+							# 메인 메뉴로 돌아갈 때 BGM 정지
+							pygame.mixer.music.stop()
+							print("[BGM] 배경음악 정지 (메인 메뉴)")
 						paused_from_game = False
 
 		elif UI_state == "GAME_OVER":
@@ -756,7 +794,16 @@ def run_game():
 				game_over_timer = 0
 				game_over_winner = 0
 
-		if UI_state == "GAME_PLAY" and not countdown_active:
+		# 골 사운드 재생 상태 확인
+		if goal_sound_playing and goal_sound_channel is not None:
+			if not goal_sound_channel.get_busy():
+				goal_sound_playing = False
+				goal_sound_channel = None
+				# 골 사운드 종료 후 BGM 재개
+				pygame.mixer.music.unpause()
+				print("[BGM] 배경음악 재개 (골 사운드 종료)")
+
+		if UI_state == "GAME_PLAY" and not countdown_active and not goal_sound_playing:
 			keys = pygame.key.get_pressed()
 
 			move_p1_x = p1_joy_x * paddle_speed
@@ -872,6 +919,14 @@ def run_game():
 				goal_flash_color = COLOR_OPTIONS[p2_color_idx]
 				for _ in range(40):
 					particles.append(Particle(p1_goal.centerx, p1_goal.centery, COLOR_OPTIONS[p2_color_idx], random.uniform(-6, 6), random.uniform(-6, 6), 50))
+				
+				# 골 사운드 재생 (BGM 일시정지)
+				pygame.mixer.music.pause()
+				print("[BGM] 배경음악 일시정지 (골 사운드)")
+				goal_sound_idx = random.randint(0, 1)
+				goal_sound_channel = goal_sounds[goal_sound_idx].play()
+				goal_sound_playing = True
+				
 			elif ball_rect.colliderect(p2_goal):
 				p1_score += 1
 				ball_x = int(WIDTH * 0.75) - ball_size // 2
@@ -882,6 +937,13 @@ def run_game():
 				goal_flash_color = COLOR_OPTIONS[p1_color_idx]
 				for _ in range(40):
 					particles.append(Particle(p2_goal.centerx, p2_goal.centery, COLOR_OPTIONS[p1_color_idx], random.uniform(-6, 6), random.uniform(-6, 6), 50))
+				
+				# 골 사운드 재생 (BGM 일시정지)
+				pygame.mixer.music.pause()
+				print("[BGM] 배경음악 일시정지 (골 사운드)")
+				goal_sound_idx = random.randint(0, 1)
+				goal_sound_channel = goal_sounds[goal_sound_idx].play()
+				goal_sound_playing = True
 			else:
 				if ball_x <= 0:
 					ball_speed_x = abs(ball_speed_x)
@@ -1052,6 +1114,20 @@ def run_game():
 				overlay.fill((0, 0, 0, 120))
 				screen.blit(overlay, (0, 0))
 				draw_neon_text(screen, "PAUSED", title_font, GRAY, (WIDTH // 2 - title_font.size("PAUSED")[0] // 2, HEIGHT // 2 - title_font.size("PAUSED")[1] // 2), 3)
+
+			# Goal! UI 표시
+			if goal_sound_playing:
+				goal_pulse = int(20 * math.sin(global_time * 0.015))
+				goal_size = int(HEIGHT * 0.15) + goal_pulse
+				try:
+					goal_font = pygame.font.Font("Moneygraphy-Rounded.otf", goal_size)
+				except:
+					goal_font = pygame.font.SysFont("malgungothic", goal_size, bold=True)
+				
+				goal_text = "GOAL!"
+				goal_color = YELLOW
+				draw_neon_text(screen, goal_text, goal_font, goal_color, 
+							  (WIDTH // 2 - goal_font.size(goal_text)[0] // 2, HEIGHT // 2 - goal_font.size(goal_text)[1] // 2), 5)
 
 		elif UI_state == "SETTINGS":
 			draw_neon_text(screen, "SETTINGS", title_font, NEON_BLUE, (WIDTH // 2 - title_font.size("SETTINGS")[0] // 2, int(HEIGHT * 0.15)), 2)

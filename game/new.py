@@ -63,7 +63,7 @@ SRT_WINDOW_MS = 1000
 
 # --- [ESP32 듀얼 보드 네트워크 설정] ---
 P1_ESP_IP = "192.168.0.200"       # ★ P1 ESP32 보드의 IP 주소를 입력
-P2_ESP_IP = "192.168.0.154"       # ★ P2 ESP32 보드의 IP 주소를 입력
+P2_ESP_IP = "192.168.0.139"       # ★ P2 ESP32 보드의 IP 주소를 입력
 
 P1_RCV_PORT = 10001               # P1 ESP -> Python 수신 포트
 P2_RCV_PORT = 10002               # P2 ESP -> Python 수신 포트
