@@ -765,6 +765,8 @@ def run_game():
 			if keys[pygame.K_a]: move_p1_x = -paddle_speed
 			if keys[pygame.K_d]: move_p1_x = paddle_speed
 
+			print(f"[패들 이동] p1_joy: ({p1_joy_x:.2f}, {p1_joy_y:.2f}), move: ({move_p1_x:.2f}, {move_p1_y:.2f})")
+
 			p1_cx += int(move_p1_x)
 			p1_cy += int(move_p1_y)
 
