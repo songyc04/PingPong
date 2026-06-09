@@ -39,6 +39,9 @@ p2_cmd_lock = threading.Lock()
 p1_joy_x, p1_joy_y = 0.0, 0.0
 p2_joy_x, p2_joy_y = 0.0, 0.0
 
+p1_raw_x, p1_raw_y = 0, 0
+p2_raw_x, p2_raw_y = 0, 0
+
 # --- 설정 데이터 변수 ---
 sound_enabled = True
 p1_color_idx = 0
@@ -217,6 +220,7 @@ def draw_fancy_button(surface, rect, text, font, base_color, mouse_pos, is_selec
 
 def parse_joystick_value(raw_msg, player):
 	global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
+	global p1_raw_x, p1_raw_y, p2_raw_x, p2_raw_y
 
 	if countdown_active:
 		return
@@ -226,6 +230,14 @@ def parse_joystick_value(raw_msg, player):
 		if len(parts) == 2:
 			x = int(parts[0])
 			y = int(parts[1])
+
+			if player == 1:
+				p1_raw_x, p1_raw_y = x, y
+			else:
+				p2_raw_x, p2_raw_y = x, y
+
+			# 디버그: 조이스틱 원시 값 즉시 출력
+			print(f"[조이스틱 디버그] {p1_raw_x}:{p1_raw_y}:{p2_raw_x}:{p2_raw_y}")
 
 			jx, jy = 0.0, 0.0
 			center_min, center_max = 1800, 2300
@@ -347,6 +359,7 @@ def run_game():
 	global UI_state, current_setting_index, popup_type, popup_sub_index
 	global sound_enabled, p1_color_idx, p2_color_idx
 	global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
+	global p1_raw_x, p1_raw_y, p2_raw_x, p2_raw_y
 	global game_time_limit, time_limit_idx, countdown_active
 	global p1_command, p2_command
 	global p1_srt_time, p2_srt_time
