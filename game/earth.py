@@ -266,15 +266,16 @@ def parse_joystick_value(raw_msg, player):
 			print(f"[조이스틱 디버그] {p1_raw_x}:{p1_raw_y}:{p2_raw_x}:{p2_raw_y}")
 
 			jx, jy = 0.0, 0.0
-			center_min, center_max = 1800, 2300
+			x_center_min, x_center_max = 480, 520
+			y_center_min, y_center_max = 1800, 1850
 
-			if center_min <= x <= center_max: jx = 0.0
-			elif x < center_min:              jx = (x - center_min) / float(center_min)
-			else:                             jx = (x - center_max) / float(4095.0 - center_max)
+			if x_center_min <= x <= x_center_max: jx = 0.0
+			elif x < x_center_min:                jx = (x - x_center_min) / float(x_center_min)
+			else:                                 jx = (x - x_center_max) / float(4095.0 - x_center_max)
 
-			if center_min <= y <= center_max: jy = 0.0
-			elif y < center_min:              jy = (y - center_min) / float(center_min)
-			else:                             jy = (y - center_max) / float(4095.0 - center_max)
+			if y_center_min <= y <= y_center_max: jy = 0.0
+			elif y < y_center_min:                jy = (y - y_center_min) / float(y_center_min)
+			else:                                 jy = (y - y_center_max) / float(4095.0 - y_center_max)
 
 			jx = max(-1.0, min(1.0, jx))
 			jy = max(-1.0, min(1.0, jy))
