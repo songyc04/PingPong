@@ -53,6 +53,8 @@ p2_color_idx = 1
 game_time_limit = 60000
 time_limit_idx = 0
 TIME_LIMITS = [60000, 90000, 120000, 180000]
+current_theme = 0  # 0: 우주, 1: 축구장
+THEME_NAMES = ["COSMIC", "SOCCER"]
 
 # --- 설정 화면 커서 및 팝업 상태 정의 ---
 current_setting_index = 0
@@ -193,6 +195,50 @@ def draw_gradient_bg(surface, width, height, time_val):
 		g = int(DARK_BG1[1] * (1 - ratio) + DARK_BG2[1] * ratio)
 		b = int(DARK_BG1[2] * (1 - ratio) + DARK_BG2[2] * ratio)
 		pygame.draw.rect(surface, (r, g, b), (0, y, width, 4))
+
+
+def draw_soccer_field(surface, width, height):
+	# 축구장 배경 (녹색 잔디)
+	surface.fill((34, 139, 34))
+	
+	# 잔디 줄무늬 효과
+	stripe_width = width // 10
+	for i in range(0, width, stripe_width * 2):
+		pygame.draw.rect(surface, (46, 159, 46), (i, 0, stripe_width, height))
+	
+	# 흰색 라인
+	line_color = (255, 255, 255)
+	line_width = 3
+	
+	# 외곽 라인
+	pygame.draw.rect(surface, line_color, (20, 20, width - 40, height - 40), line_width)
+	
+	# 중앙선
+	center_x = width // 2
+	pygame.draw.line(surface, line_color, (center_x, 20), (center_x, height - 20), line_width)
+	
+	# 중앙 서클
+	center_circle_radius = min(width, height) // 8
+	pygame.draw.circle(surface, line_color, (center_x, height // 2), center_circle_radius, line_width)
+	
+	# 중앙 점
+	pygame.draw.circle(surface, line_color, (center_x, height // 2), 5)
+	
+	# 왼쪽 페널티 에어리어
+	penalty_width = width // 6
+	penalty_height = height // 3
+	pygame.draw.rect(surface, line_color, (20, height // 2 - penalty_height // 2, penalty_width, penalty_height), line_width)
+	
+	# 오른쪽 페널티 에어리어
+	pygame.draw.rect(surface, line_color, (width - 20 - penalty_width, height // 2 - penalty_height // 2, penalty_width, penalty_height), line_width)
+	
+	# 왼쪽 골 에어리어
+	goal_area_width = width // 12
+	goal_area_height = height // 5
+	pygame.draw.rect(surface, line_color, (20, height // 2 - goal_area_height // 2, goal_area_width, goal_area_height), line_width)
+	
+	# 오른쪽 골 에어리어
+	pygame.draw.rect(surface, line_color, (width - 20 - goal_area_width, height // 2 - goal_area_height // 2, goal_area_width, goal_area_height), line_width)
 
 
 def draw_neon_text(surface, text, font, color, pos, glow_intensity=2):
@@ -372,7 +418,7 @@ def p2_udp_thread():
 
 
 def run_game():
-	global UI_state, current_setting_index, popup_type, popup_sub_index, main_menu_index
+	global UI_state, current_setting_index, popup_type, popup_sub_index, main_menu_index, current_theme
 	global sound_enabled, p1_color_idx, p2_color_idx
 	global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
 	global p1_raw_x, p1_raw_y, p2_raw_x, p2_raw_y
@@ -384,14 +430,16 @@ def run_game():
 	pygame.mixer.init()
 	
 	# 배경음악 파일 목록
-	bgm_files = ["sound/back_01.mp3", "sound/back_02.mp3"]
+	bgm_files = ["sound/back_01.mp3", "sound/back_02.mp3", "sound/back_03.mp3", "sound/back_04.mp3"]
 	
 	# 골 사운드 파일 로드
 	goal_sound_01 = pygame.mixer.Sound("sound/goal_01.mp3")
 	goal_sound_02 = pygame.mixer.Sound("sound/goal_02.mp3")
+	goal_sound_03 = pygame.mixer.Sound("sound/goal_03.mp3")
 	goal_sound_01.set_volume(0.5)
 	goal_sound_02.set_volume(0.5)
-	goal_sounds = [goal_sound_01, goal_sound_02]
+	goal_sound_03.set_volume(0.5)
+	goal_sounds = [goal_sound_01, goal_sound_02, goal_sound_03]
 	goal_sound_channel = None
 	goal_sound_playing = False
 
@@ -402,7 +450,7 @@ def run_game():
 	WIDTH, HEIGHT = info.current_w, info.current_h
 
 	screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.NOFRAME | pygame.HWSURFACE | pygame.DOUBLEBUF)
-	pygame.display.set_caption("COSMIC PONG - Galactic Edition")
+	pygame.display.set_caption("PADDLE MASTERS")
 	clock = pygame.time.Clock()
 
 	ball_size = int(HEIGHT * 0.03)
@@ -595,13 +643,17 @@ def run_game():
 						main_menu_index = (main_menu_index - 1) % 3
 					elif UI_state == "SETTINGS":
 						if popup_type == "SOUND":
-							popup_sub_index = (popup_sub_index - 1) % 2
+							popup_sub_index = (popup_sub_index - 1) % 3
 						elif popup_type == "COLOR":
 							popup_sub_index = (popup_sub_index - 1) % 3
 						elif popup_type == "GAME_CUSTOM":
-							popup_sub_index = (popup_sub_index - 1) % 2
+							popup_sub_index = (popup_sub_index - 1) % 3
 						elif popup_type == "SETTING_TIMES":
 							popup_sub_index = (popup_sub_index - 1) % 5
+						elif popup_type == "UI_THEME":
+							popup_sub_index = (popup_sub_index - 1) % 3
+						elif popup_type == "CREATOR":
+							pass
 						elif not popup_type:
 							current_setting_index = (current_setting_index - 1) % 5
 				
@@ -610,13 +662,17 @@ def run_game():
 						main_menu_index = (main_menu_index + 1) % 3
 					elif UI_state == "SETTINGS":
 						if popup_type == "SOUND":
-							popup_sub_index = (popup_sub_index + 1) % 2
+							popup_sub_index = (popup_sub_index + 1) % 3
 						elif popup_type == "COLOR":
 							popup_sub_index = (popup_sub_index + 1) % 3
 						elif popup_type == "GAME_CUSTOM":
-							popup_sub_index = (popup_sub_index + 1) % 2
+							popup_sub_index = (popup_sub_index + 1) % 3
 						elif popup_type == "SETTING_TIMES":
 							popup_sub_index = (popup_sub_index + 1) % 5
+						elif popup_type == "UI_THEME":
+							popup_sub_index = (popup_sub_index + 1) % 3
+						elif popup_type == "CREATOR":
+							pass
 						elif not popup_type:
 							current_setting_index = (current_setting_index + 1) % 5
 				
@@ -634,9 +690,10 @@ def run_game():
 						if popup_type == "SOUND":
 							if popup_sub_index == 0:
 								sound_enabled = True
-							else:
+							elif popup_sub_index == 1:
 								sound_enabled = False
-							popup_type = ""
+							elif popup_sub_index == 2:
+								popup_type = ""
 						elif popup_type == "COLOR":
 							if popup_sub_index == 0:
 								p1_color_idx = (p1_color_idx + 1) % len(COLOR_OPTIONS)
@@ -648,7 +705,10 @@ def run_game():
 							if popup_sub_index == 0:
 								popup_type = "SETTING_TIMES"
 								popup_sub_index = time_limit_idx
-							else:
+							elif popup_sub_index == 1:
+								popup_type = "UI_THEME"
+								popup_sub_index = current_theme
+							elif popup_sub_index == 2:
 								popup_type = ""
 						elif popup_type == "SETTING_TIMES":
 							if popup_sub_index < 4:
@@ -657,8 +717,15 @@ def run_game():
 							else:
 								popup_type = "GAME_CUSTOM"
 								popup_sub_index = 0
+						elif popup_type == "UI_THEME":
+							if popup_sub_index < 2:
+								current_theme = popup_sub_index
+							else:
+								popup_type = "GAME_CUSTOM"
+								popup_sub_index = 0
 						elif popup_type == "CREATOR":
-							popup_type = ""
+							if popup_sub_index == 0:
+								popup_type = ""
 						elif not popup_type:
 							if current_setting_index == 0:
 								popup_type = "SOUND"
@@ -832,10 +899,14 @@ def run_game():
 
 			if popup_type:
 				if popup_type == "SOUND":
-					if p1_cmd in ["UP", "DN"]: popup_sub_index = (popup_sub_index + 1) % 2
+					if p1_cmd in ["UP", "DN"]: popup_sub_index = (popup_sub_index + 1) % 3
 					elif p1_cmd == "CLK":
-						sound_enabled = (popup_sub_index == 0)
-						popup_type = ""
+						if popup_sub_index == 0:
+							sound_enabled = True
+						elif popup_sub_index == 1:
+							sound_enabled = False
+						elif popup_sub_index == 2:
+							popup_type = ""
 				elif popup_type == "COLOR":
 					if p1_cmd == "UP": popup_sub_index = (popup_sub_index - 1) % 3
 					elif p1_cmd == "DN": popup_sub_index = (popup_sub_index + 1) % 3
@@ -844,12 +915,15 @@ def run_game():
 						elif popup_sub_index == 1: p2_color_idx = (p2_color_idx + 1) % len(COLOR_OPTIONS)
 						elif popup_sub_index == 2: popup_type = ""
 				elif popup_type == "GAME_CUSTOM":
-					if p1_cmd in ["UP", "DN"]: popup_sub_index = (popup_sub_index + 1) % 2
+					if p1_cmd in ["UP", "DN"]: popup_sub_index = (popup_sub_index + 1) % 3
 					elif p1_cmd == "CLK":
 						if popup_sub_index == 0:
 							popup_type = "SETTING_TIMES"
 							popup_sub_index = time_limit_idx
-						else:
+						elif popup_sub_index == 1:
+							popup_type = "UI_THEME"
+							popup_sub_index = current_theme
+						elif popup_sub_index == 2:
 							popup_type = ""
 				elif popup_type == "SETTING_TIMES":
 					if p1_cmd == "UP": popup_sub_index = (popup_sub_index - 1) % 5
@@ -858,6 +932,15 @@ def run_game():
 						if popup_sub_index < 4:
 							time_limit_idx = popup_sub_index
 							game_time_limit = TIME_LIMITS[time_limit_idx]
+						else:
+							popup_type = "GAME_CUSTOM"
+							popup_sub_index = 0
+				elif popup_type == "UI_THEME":
+					if p1_cmd == "UP": popup_sub_index = (popup_sub_index - 1) % 3
+					elif p1_cmd == "DN": popup_sub_index = (popup_sub_index + 1) % 3
+					elif p1_cmd == "CLK":
+						if popup_sub_index < 2:
+							current_theme = popup_sub_index
 						else:
 							popup_type = "GAME_CUSTOM"
 							popup_sub_index = 0
@@ -1035,7 +1118,7 @@ def run_game():
 				if sound_enabled:
 					pygame.mixer.music.pause()
 					print("[BGM] 배경음악 일시정지 (골 사운드)")
-					goal_sound_idx = random.randint(0, 1)
+					goal_sound_idx = random.randint(0, 2)
 					goal_sound_channel = goal_sounds[goal_sound_idx].play()
 					goal_sound_playing = True
 				
@@ -1054,7 +1137,7 @@ def run_game():
 				if sound_enabled:
 					pygame.mixer.music.pause()
 					print("[BGM] 배경음악 일시정지 (골 사운드)")
-					goal_sound_idx = random.randint(0, 1)
+					goal_sound_idx = random.randint(0, 2)
 					goal_sound_channel = goal_sounds[goal_sound_idx].play()
 					goal_sound_playing = True
 			else:
@@ -1068,34 +1151,41 @@ def run_game():
 			ball_rect = pygame.Rect(ball_x, ball_y, ball_size, ball_size)
 
 		# --- 그래픽 렌더링 ---
-		draw_gradient_bg(screen, WIDTH, HEIGHT, global_time)
+		if current_theme == 0:  # 우주 테마
+			draw_gradient_bg(screen, WIDTH, HEIGHT, global_time)
 
-		# 성운 그리기
-		for nebula in nebulae:
-			nebula.draw(screen)
+			# 성운 그리기
+			for nebula in nebulae:
+				nebula.draw(screen)
 
-		for star in stars:
-			star.draw(screen)
+			for star in stars:
+				star.draw(screen)
 
-		border_pulse = int(80 + 40 * math.sin(global_time * 0.003))
-		border_color = (border_pulse // 4, border_pulse // 2, border_pulse)
-		pygame.draw.rect(screen, border_color, (0, 0, WIDTH, HEIGHT), 3)
-		pygame.draw.rect(screen, (border_pulse // 8, border_pulse // 4, border_pulse // 2), (2, 2, WIDTH - 4, HEIGHT - 4), 1)
+			border_pulse = int(80 + 40 * math.sin(global_time * 0.003))
+			border_color = (border_pulse // 4, border_pulse // 2, border_pulse)
+			pygame.draw.rect(screen, border_color, (0, 0, WIDTH, HEIGHT), 3)
+			pygame.draw.rect(screen, (border_pulse // 8, border_pulse // 4, border_pulse // 2), (2, 2, WIDTH - 4, HEIGHT - 4), 1)
+		else:  # 축구장 테마
+			draw_soccer_field(screen, WIDTH, HEIGHT)
 
 		dash_len = 20
 		gap_len = 15
 		y = 0
 		pulse = int(100 + 50 * math.sin(global_time * 0.004))
 		line_color = (pulse // 4, pulse // 3, pulse)
-		while y < HEIGHT:
-			end_y = min(y + dash_len, HEIGHT)
-			pygame.draw.line(screen, line_color, (center_line_x, y), (center_line_x, end_y), 2)
-			y += dash_len + gap_len
+		
+		if current_theme == 0:  # 우주 테마일 때만 중앙선 그리기
+			while y < HEIGHT:
+				end_y = min(y + dash_len, HEIGHT)
+				pygame.draw.line(screen, line_color, (center_line_x, y), (center_line_x, end_y), 2)
+				y += dash_len + gap_len
 
 		p1_glow_pulse = int(4 + 2 * math.sin(global_time * 0.005))
 		p2_glow_pulse = int(4 + 2 * math.sin(global_time * 0.005 + math.pi))
-		draw_glow(screen, COLOR_OPTIONS[p1_color_idx], p1_goal.center, goal_height // 2, p1_glow_pulse)
-		draw_glow(screen, COLOR_OPTIONS[p2_color_idx], p2_goal.center, goal_height // 2, p2_glow_pulse)
+		
+		if current_theme == 0:  # 우주 테마
+			draw_glow(screen, COLOR_OPTIONS[p1_color_idx], p1_goal.center, goal_height // 2, p1_glow_pulse)
+			draw_glow(screen, COLOR_OPTIONS[p2_color_idx], p2_goal.center, goal_height // 2, p2_glow_pulse)
 		pygame.draw.rect(screen, COLOR_OPTIONS[p1_color_idx], p1_goal, 3)
 		pygame.draw.rect(screen, COLOR_OPTIONS[p2_color_idx], p2_goal, 3)
 
@@ -1109,57 +1199,81 @@ def run_game():
 			t.draw(screen)
 
 		if UI_state in ["GAME_PLAY", "PAUSE"]:
-			# P1 패들 - 우주선 형태 (삼각형)
-			p1_color = COLOR_OPTIONS[p1_color_idx]
-			draw_glow(screen, p1_color, (p1_cx, p1_cy), p1_radius, 3)
-			ship_points = [
-				(p1_cx + p1_radius, p1_cy),
-				(p1_cx - p1_radius // 2, p1_cy - p1_radius),
-				(p1_cx - p1_radius // 2, p1_cy + p1_radius)
-			]
-			pygame.draw.polygon(screen, p1_color, ship_points)
-			pygame.draw.polygon(screen, (min(255, p1_color[0] + 80), min(255, p1_color[1] + 80), min(255, p1_color[2] + 80)), 
-							  [(p1_cx + p1_radius // 2, p1_cy), 
-							   (p1_cx - p1_radius // 3, p1_cy - p1_radius // 2),
-							   (p1_cx - p1_radius // 3, p1_cy + p1_radius // 2)])
-			pygame.draw.circle(screen, WHITE, (p1_cx, p1_cy), int(p1_radius * 0.15))
+			if current_theme == 0:  # 우주 테마
+				# P1 패들 - 우주선 형태 (삼각형)
+				p1_color = COLOR_OPTIONS[p1_color_idx]
+				draw_glow(screen, p1_color, (p1_cx, p1_cy), p1_radius, 3)
+				ship_points = [
+					(p1_cx + p1_radius, p1_cy),
+					(p1_cx - p1_radius // 2, p1_cy - p1_radius),
+					(p1_cx - p1_radius // 2, p1_cy + p1_radius)
+				]
+				pygame.draw.polygon(screen, p1_color, ship_points)
+				pygame.draw.polygon(screen, (min(255, p1_color[0] + 80), min(255, p1_color[1] + 80), min(255, p1_color[2] + 80)), 
+								  [(p1_cx + p1_radius // 2, p1_cy), 
+								   (p1_cx - p1_radius // 3, p1_cy - p1_radius // 2),
+								   (p1_cx - p1_radius // 3, p1_cy + p1_radius // 2)])
+				pygame.draw.circle(screen, WHITE, (p1_cx, p1_cy), int(p1_radius * 0.15))
 
-			# P2 패들 - 우주선 형태 (삼각형, 반대 방향)
-			p2_color = COLOR_OPTIONS[p2_color_idx]
-			draw_glow(screen, p2_color, (p2_cx, p2_cy), p2_radius, 3)
-			ship_points2 = [
-				(p2_cx - p2_radius, p2_cy),
-				(p2_cx + p2_radius // 2, p2_cy - p2_radius),
-				(p2_cx + p2_radius // 2, p2_cy + p2_radius)
-			]
-			pygame.draw.polygon(screen, p2_color, ship_points2)
-			pygame.draw.polygon(screen, (min(255, p2_color[0] + 80), min(255, p2_color[1] + 80), min(255, p2_color[2] + 80)), 
-							  [(p2_cx - p2_radius // 2, p2_cy), 
-							   (p2_cx + p2_radius // 3, p2_cy - p2_radius // 2),
-							   (p2_cx + p2_radius // 3, p2_cy + p2_radius // 2)])
-			pygame.draw.circle(screen, WHITE, (p2_cx, p2_cy), int(p2_radius * 0.15))
+				# P2 패들 - 우주선 형태 (삼각형, 반대 방향)
+				p2_color = COLOR_OPTIONS[p2_color_idx]
+				draw_glow(screen, p2_color, (p2_cx, p2_cy), p2_radius, 3)
+				ship_points2 = [
+					(p2_cx - p2_radius, p2_cy),
+					(p2_cx + p2_radius // 2, p2_cy - p2_radius),
+					(p2_cx + p2_radius // 2, p2_cy + p2_radius)
+				]
+				pygame.draw.polygon(screen, p2_color, ship_points2)
+				pygame.draw.polygon(screen, (min(255, p2_color[0] + 80), min(255, p2_color[1] + 80), min(255, p2_color[2] + 80)), 
+								  [(p2_cx - p2_radius // 2, p2_cy), 
+								   (p2_cx + p2_radius // 3, p2_cy - p2_radius // 2),
+								   (p2_cx + p2_radius // 3, p2_cy + p2_radius // 2)])
+				pygame.draw.circle(screen, WHITE, (p2_cx, p2_cy), int(p2_radius * 0.15))
+			else:  # 축구장 테마
+				# P1 패들 - 원형
+				p1_color = COLOR_OPTIONS[p1_color_idx]
+				pygame.draw.circle(screen, p1_color, (p1_cx, p1_cy), p1_radius)
+				pygame.draw.circle(screen, WHITE, (p1_cx, p1_cy), p1_radius, 3)
 
-		# 공 - 운석 형태
-		ball_center = (ball_x + ball_radius, ball_y + ball_radius)
-		draw_glow(screen, (255, 200, 100), ball_center, ball_radius, 2)
-		pygame.draw.ellipse(screen, (180, 140, 100), ball_rect)
-		# 크레이터 효과
-		crater_size = ball_size // 4
-		pygame.draw.circle(screen, (140, 100, 70), (ball_x + ball_size // 3, ball_y + ball_size // 3), crater_size // 2)
-		pygame.draw.circle(screen, (140, 100, 70), (ball_x + ball_size * 2 // 3, ball_y + ball_size // 2), crater_size // 3)
-		pygame.draw.circle(screen, (160, 120, 80), (ball_x + ball_size // 2, ball_y + ball_size * 2 // 3), crater_size // 2)
+				# P2 패들 - 원형
+				p2_color = COLOR_OPTIONS[p2_color_idx]
+				pygame.draw.circle(screen, p2_color, (p2_cx, p2_cy), p2_radius)
+				pygame.draw.circle(screen, WHITE, (p2_cx, p2_cy), p2_radius, 3)
+
+		# 공
+		if current_theme == 0:  # 우주 테마 - 운석 형태
+			ball_center = (ball_x + ball_radius, ball_y + ball_radius)
+			draw_glow(screen, (255, 200, 100), ball_center, ball_radius, 2)
+			pygame.draw.ellipse(screen, (180, 140, 100), ball_rect)
+			# 크레이터 효과
+			crater_size = ball_size // 4
+			pygame.draw.circle(screen, (140, 100, 70), (ball_x + ball_size // 3, ball_y + ball_size // 3), crater_size // 2)
+			pygame.draw.circle(screen, (140, 100, 70), (ball_x + ball_size * 2 // 3, ball_y + ball_size // 2), crater_size // 3)
+			pygame.draw.circle(screen, (160, 120, 80), (ball_x + ball_size // 2, ball_y + ball_size * 2 // 3), crater_size // 2)
+		else:  # 축구장 테마 - 축구공 형태
+			pygame.draw.circle(screen, WHITE, (ball_x + ball_radius, ball_y + ball_radius), ball_radius)
+			pygame.draw.circle(screen, BLACK, (ball_x + ball_radius, ball_y + ball_radius), ball_radius, 2)
+			# 축구공 패턴 (오각형)
+			pentagon_size = ball_radius // 3
+			pygame.draw.circle(screen, BLACK, (ball_x + ball_radius, ball_y + ball_radius), pentagon_size)
 
 		for p in particles:
 			p.draw(screen)
 
 		if UI_state == "MAIN_MENU":
-			title_glow_offset = int(3 * math.sin(global_time * 0.003))
-			title_color = (min(255, 150 + title_glow_offset * 20), min(255, 100 + title_glow_offset * 10), 255)
-			game_title = "COSMIC PONG"
-			draw_neon_text(screen, game_title, title_font, title_color, (WIDTH // 2 - title_font.size(game_title)[0] // 2, int(HEIGHT * 0.15)), 3)
-
-			subtitle_text = small_font.render("GALACTIC EDITION", True, COSMIC_CYAN)
-			screen.blit(subtitle_text, (WIDTH // 2 - subtitle_text.get_width() // 2, int(HEIGHT * 0.26)))
+			if current_theme == 0:  # 우주 테마
+				title_glow_offset = int(3 * math.sin(global_time * 0.003))
+				title_color = (min(255, 150 + title_glow_offset * 20), min(255, 100 + title_glow_offset * 10), 255)
+				game_title = "PADDLE MASTERS"
+				draw_neon_text(screen, game_title, title_font, title_color, (WIDTH // 2 - title_font.size(game_title)[0] // 2, int(HEIGHT * 0.15)), 3)
+				subtitle_text = small_font.render("GALACTIC EDITION", True, COSMIC_CYAN)
+				screen.blit(subtitle_text, (WIDTH // 2 - subtitle_text.get_width() // 2, int(HEIGHT * 0.26)))
+			else:  # 축구장 테마
+				title_color = (255, 255, 255)
+				game_title = "PADDLE MASTERS"
+				draw_neon_text(screen, game_title, title_font, title_color, (WIDTH // 2 - title_font.size(game_title)[0] // 2, int(HEIGHT * 0.15)), 3)
+				subtitle_text = small_font.render("STADIUM EDITION", True, (34, 139, 34))
+				screen.blit(subtitle_text, (WIDTH // 2 - subtitle_text.get_width() // 2, int(HEIGHT * 0.26)))
 
 			draw_fancy_button(screen, btn_start_rect, "LAUNCH", btn_font, GREEN, mouse_pos, main_menu_index == 0)
 			draw_fancy_button(screen, btn_setting_rect, "SETTINGS", btn_font, NEON_BLUE, mouse_pos, main_menu_index == 1)
@@ -1282,10 +1396,16 @@ def run_game():
 
 				if popup_type == "SOUND":
 					draw_neon_text(screen, "SOUND CONFIG", font, YELLOW, (popup_rect.centerx - font.size("SOUND CONFIG")[0] // 2, popup_rect.top + int(HEIGHT * 0.03)), 1)
-					for idx, text in enumerate(["SOUND: ON", "SOUND: OFF"]):
-						target_rect = pygame.Rect(popup_rect.left + int(popup_w * (0.15 if idx == 0 else 0.55)), popup_rect.top + int(HEIGHT * 0.14), int(popup_w * 0.3), int(HEIGHT * 0.06))
-						c = GREEN if popup_sub_index == idx else GRAY
-						draw_fancy_button(screen, target_rect, text, btn_font, c, mouse_pos, popup_sub_index == idx)
+					options_text = ["SOUND: ON", "SOUND: OFF", "[ BACK ]"]
+					for idx, text in enumerate(options_text):
+						if idx < 2:
+							target_rect = pygame.Rect(popup_rect.left + int(popup_w * (0.15 if idx == 0 else 0.55)), popup_rect.top + int(HEIGHT * 0.14), int(popup_w * 0.3), int(HEIGHT * 0.06))
+							c = GREEN if popup_sub_index == idx else GRAY
+							draw_fancy_button(screen, target_rect, text, btn_font, c, mouse_pos, popup_sub_index == idx)
+						else:
+							current_y = popup_rect.top + int(HEIGHT * 0.22)
+							txt_s = btn_font.render(text, True, YELLOW if popup_sub_index == idx else WHITE)
+							screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
 				elif popup_type == "COLOR":
 					draw_neon_text(screen, "PADDLE COLOR", font, YELLOW, (popup_rect.centerx - font.size("PADDLE COLOR")[0] // 2, popup_rect.top + int(HEIGHT * 0.02)), 1)
 					options_text = [f"P1 COLOR : < {COLOR_NAMES[p1_color_idx]} >", f"P2 COLOR : < {COLOR_NAMES[p2_color_idx]} >", "[ BACK ]"]
@@ -1299,7 +1419,7 @@ def run_game():
 						screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
 				elif popup_type == "GAME_CUSTOM":
 					draw_neon_text(screen, "GAME CUSTOM", font, YELLOW, (popup_rect.centerx - font.size("GAME CUSTOM")[0] // 2, popup_rect.top + int(HEIGHT * 0.03)), 1)
-					options_text = ["1. SETTING TIMES", "[ BACK ]"]
+					options_text = ["1. SETTING TIMES", "2. UI THEME", "[ BACK ]"]
 					for idx, text in enumerate(options_text):
 						current_y = popup_rect.top + int(HEIGHT * 0.12) + (idx * int(HEIGHT * 0.08))
 						color_preset = YELLOW if popup_sub_index == idx else WHITE
@@ -1314,11 +1434,23 @@ def run_game():
 						color_val = NEON_GREEN if idx == time_limit_idx else (YELLOW if popup_sub_index == idx else WHITE)
 						txt_s = btn_font.render(marker + text, True, color_val)
 						screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
+				elif popup_type == "UI_THEME":
+					draw_neon_text(screen, "UI THEME", font, YELLOW, (popup_rect.centerx - font.size("UI THEME")[0] // 2, popup_rect.top + int(HEIGHT * 0.03)), 1)
+					options_text = ["COSMIC", "SOCCER", "[ BACK ]"]
+					for idx, text in enumerate(options_text):
+						current_y = popup_rect.top + int(HEIGHT * 0.12) + (idx * int(HEIGHT * 0.05))
+						marker = "* " if idx == current_theme else "  "
+						color_val = NEON_GREEN if idx == current_theme else (YELLOW if popup_sub_index == idx else WHITE)
+						txt_s = btn_font.render(marker + text, True, color_val)
+						screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
 				elif popup_type == "CREATOR":
 					draw_neon_text(screen, "TEAM CREDITS", font, YELLOW, (popup_rect.centerx - font.size("TEAM CREDITS")[0] // 2, popup_rect.top + int(HEIGHT * 0.03)), 1)
 					for idx, line in enumerate(["DEVELOPER: Team Hockey Pong", "HARDWARE: ESP32 Wi-Fi UDP", "GRAPHICS: Pygame Neon Framework"]):
 						txt_s = btn_font.render(line, True, WHITE)
 						screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, popup_rect.top + int(HEIGHT * 0.12) + (idx * 30)))
+					back_text = "[ BACK ]"
+					txt_s = btn_font.render(back_text, True, YELLOW if popup_sub_index == 0 else WHITE)
+					screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, popup_rect.top + int(HEIGHT * 0.25)))
 
 		elif UI_state == "GAME_OVER":
 			# 반투명 오버레이
