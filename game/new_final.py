@@ -697,8 +697,8 @@ def run_game():
 							popup_type = ""
 					elif UI_state in ["GAME_PLAY", "PAUSE", "SETTINGS"]:
 						if UI_state == "SETTINGS":
-							send_to_all("END")
-							print(f"[디버그] ESC로 설정창 나가기 -> END 송신")
+							send_to_all("SET")
+							print(f"[디버그] ESC로 설정창 나가기 -> SET 송신")
 						if UI_state == "SETTINGS" and paused_from_game:
 							resume_game()
 							UI_state = "GAME_PLAY"
@@ -832,7 +832,7 @@ def run_game():
 		if not running:
 			break
 
-		if goal_sound_playing or UI_state == "GAME_OVER":
+		if goal_sound_playing or UI_state == "GAME_OVER" or countdown_active:
 			input_blocked = True
 		else:
 			input_blocked = False
@@ -909,6 +909,7 @@ def run_game():
 					countdown_active = False
 
 			if p1_cmd == "SET":
+				send_to_all("SET")
 				if UI_state == "GAME_PLAY":
 					UI_state = "PAUSE"
 					game_timer_active = False
@@ -917,7 +918,6 @@ def run_game():
 				UI_state = "SETTINGS"
 				current_setting_index = 0
 				popup_type = ""
-				send_to_all("Pause...")
 				print("[ESP32 송신] 일시정지")
 				# 설정창 진입 시 BGM 일시정지
 				pygame.mixer.music.pause()
@@ -944,8 +944,8 @@ def run_game():
 		elif UI_state == "SETTINGS":
 			if p1_cmd == "SET" or (p1_cmd == "CLK" and current_setting_index == 4 and not popup_type):
 				if current_setting_index == 4 or p1_cmd == "SET":
-					send_to_all("END")
-					print(f"[디버그] SETTINGS에서 나가기 (p1_cmd={p1_cmd}) -> END 송신")
+					send_to_all("SET")
+					print(f"[디버그] SETTINGS에서 나가기 (p1_cmd={p1_cmd}) -> SET 송신")
 					if paused_from_game:
 						resume_game()
 						UI_state = "GAME_PLAY"
@@ -1021,8 +1021,8 @@ def run_game():
 						popup_type = "CREATOR"
 						popup_sub_index = 0
 					elif current_setting_index == 4:
-						send_to_all("END")
-						print(f"[디버그] P1 CLK로 BACK 선택 -> END 송신")
+						send_to_all("SET")
+						print(f"[디버그] P1 CLK로 BACK 선택 -> SET 송신")
 						if paused_from_game:
 							resume_game()
 							UI_state = "GAME_PLAY"
