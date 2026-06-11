@@ -1060,11 +1060,15 @@ def run_game():
 					if sound_enabled:
 						pygame.mixer.music.unpause()
 						print("[BGM] 배경음악 재개 (골 사운드 종료)")
+					send_to_all("SRT")
+					print("[ESP32 송신] 골 이후 게임 재개 -> SRT")
 			elif not sound_enabled:
 				goal_sound_timer -= dt
 				if goal_sound_timer <= 0:
 					goal_sound_playing = False
 					goal_sound_timer = 0
+					send_to_all("SRT")
+					print("[ESP32 송신] 골 이후 게임 재개 -> SRT")
 
 		if UI_state == "GAME_PLAY" and not countdown_active and not goal_sound_playing:
 			keys = pygame.key.get_pressed()
