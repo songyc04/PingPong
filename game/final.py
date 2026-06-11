@@ -58,6 +58,7 @@ TIME_LIMITS = [60000, 90000, 120000, 180000]
 current_setting_index = 0
 popup_type = ""
 popup_sub_index = 0
+main_menu_index = 0
 
 # --- 카운트다운 및 입력 제어 플래그 ---
 countdown_active = False
@@ -262,8 +263,6 @@ def parse_joystick_value(raw_msg, player):
 			else:
 				p2_raw_x, p2_raw_y = x, y
 
-			print(f"[조이스틱 디버그] {p1_raw_x}:{p1_raw_y}:{p2_raw_x}:{p2_raw_y}")
-
 			jx = (x - 2048) / 2048.0
 			jy = (y - 2048) / 2048.0
 
@@ -373,7 +372,7 @@ def p2_udp_thread():
 
 
 def run_game():
-	global UI_state, current_setting_index, popup_type, popup_sub_index
+	global UI_state, current_setting_index, popup_type, popup_sub_index, main_menu_index
 	global sound_enabled, p1_color_idx, p2_color_idx
 	global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
 	global p1_raw_x, p1_raw_y, p2_raw_x, p2_raw_y
@@ -503,11 +502,12 @@ def run_game():
 		ball_trail.clear()
 		
 		# 배경음악 재생 (새 게임 시작 시에만)
-		bgm_choice = random.choice(bgm_files)
-		pygame.mixer.music.load(bgm_choice)
-		pygame.mixer.music.set_volume(0.5)
-		pygame.mixer.music.play(-1)  # -1은 무한 반복
-		print(f"[BGM] 배경음악 재생 시작: {bgm_choice}")
+		if sound_enabled:
+			bgm_choice = random.choice(bgm_files)
+			pygame.mixer.music.load(bgm_choice)
+			pygame.mixer.music.set_volume(0.5)
+			pygame.mixer.music.play(-1)  # -1은 무한 반복
+			print(f"[BGM] 배경음악 재생 시작: {bgm_choice}")
 
 	def resume_game():
 		global countdown_active, p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y, last_countdown_sent
@@ -519,8 +519,9 @@ def run_game():
 		ball_trail.clear()
 		last_countdown_sent = 0
 		# BGM 재개 (일시정지 상태에서 복귀이므로)
-		pygame.mixer.music.unpause()
-		print("[BGM] 배경음악 재개")
+		if sound_enabled:
+			pygame.mixer.music.unpause()
+			print("[BGM] 배경음악 재개")
 
 	def end_game():
 		nonlocal game_over_timer, game_over_winner
@@ -588,33 +589,127 @@ def run_game():
 						paused_from_game = False
 					else:
 						running = False
-			elif event.type == pygame.MOUSEBUTTONDOWN:
-				if event.button == 1:
-					if popup_type:
-						popup_type = ""
-						continue
+				
+				elif event.key == pygame.K_UP:
 					if UI_state == "MAIN_MENU":
-						if btn_start_rect.collidepoint(mouse_pos):
+						main_menu_index = (main_menu_index - 1) % 3
+					elif UI_state == "SETTINGS":
+						if popup_type == "SOUND":
+							popup_sub_index = (popup_sub_index - 1) % 2
+						elif popup_type == "COLOR":
+							popup_sub_index = (popup_sub_index - 1) % 3
+						elif popup_type == "GAME_CUSTOM":
+							popup_sub_index = (popup_sub_index - 1) % 2
+						elif popup_type == "SETTING_TIMES":
+							popup_sub_index = (popup_sub_index - 1) % 5
+						elif not popup_type:
+							current_setting_index = (current_setting_index - 1) % 5
+				
+				elif event.key == pygame.K_DOWN:
+					if UI_state == "MAIN_MENU":
+						main_menu_index = (main_menu_index + 1) % 3
+					elif UI_state == "SETTINGS":
+						if popup_type == "SOUND":
+							popup_sub_index = (popup_sub_index + 1) % 2
+						elif popup_type == "COLOR":
+							popup_sub_index = (popup_sub_index + 1) % 3
+						elif popup_type == "GAME_CUSTOM":
+							popup_sub_index = (popup_sub_index + 1) % 2
+						elif popup_type == "SETTING_TIMES":
+							popup_sub_index = (popup_sub_index + 1) % 5
+						elif not popup_type:
+							current_setting_index = (current_setting_index + 1) % 5
+				
+				elif event.key == pygame.K_RETURN:
+					if UI_state == "MAIN_MENU":
+						if main_menu_index == 0:
 							reset_game()
 							UI_state = "GAME_PLAY"
-						elif btn_setting_rect.collidepoint(mouse_pos):
+						elif main_menu_index == 1:
 							UI_state = "SETTINGS"
 							current_setting_index = 0
-						elif btn_exit_rect.collidepoint(mouse_pos):
+						elif main_menu_index == 2:
 							running = False
 					elif UI_state == "SETTINGS":
-						if btn_back_rect.collidepoint(mouse_pos):
-							send_to_all("END")
-							print(f"[디버그] 마우스 BACK 버튼 클릭 -> END 송신")
-							if paused_from_game:
-								resume_game()
-								UI_state = "GAME_PLAY"
+						if popup_type == "SOUND":
+							if popup_sub_index == 0:
+								sound_enabled = True
 							else:
-								UI_state = "MAIN_MENU"
-								# 메인 메뉴로 돌아갈 때 BGM 정지
-								pygame.mixer.music.stop()
-								print("[BGM] 배경음악 정지 (메인 메뉴)")
-							paused_from_game = False
+								sound_enabled = False
+							popup_type = ""
+						elif popup_type == "COLOR":
+							if popup_sub_index == 0:
+								p1_color_idx = (p1_color_idx + 1) % len(COLOR_OPTIONS)
+							elif popup_sub_index == 1:
+								p2_color_idx = (p2_color_idx + 1) % len(COLOR_OPTIONS)
+							elif popup_sub_index == 2:
+								popup_type = ""
+						elif popup_type == "GAME_CUSTOM":
+							if popup_sub_index == 0:
+								popup_type = "SETTING_TIMES"
+								popup_sub_index = time_limit_idx
+							else:
+								popup_type = ""
+						elif popup_type == "SETTING_TIMES":
+							if popup_sub_index < 4:
+								time_limit_idx = popup_sub_index
+								game_time_limit = TIME_LIMITS[time_limit_idx]
+							else:
+								popup_type = "GAME_CUSTOM"
+								popup_sub_index = 0
+						elif popup_type == "CREATOR":
+							popup_type = ""
+						elif not popup_type:
+							if current_setting_index == 0:
+								popup_type = "SOUND"
+								popup_sub_index = 0 if sound_enabled else 1
+							elif current_setting_index == 1:
+								popup_type = "COLOR"
+								popup_sub_index = 0
+							elif current_setting_index == 2:
+								popup_type = "GAME_CUSTOM"
+								popup_sub_index = 0
+							elif current_setting_index == 3:
+								popup_type = "CREATOR"
+								popup_sub_index = 0
+							elif current_setting_index == 4:
+								send_to_all("END")
+								if paused_from_game:
+									resume_game()
+									UI_state = "GAME_PLAY"
+								else:
+									UI_state = "MAIN_MENU"
+									pygame.mixer.music.stop()
+									print("[BGM] 배경음악 정지 (메인 메뉴)")
+								paused_from_game = False
+			# 마우스 입력 비활성화
+			# elif event.type == pygame.MOUSEBUTTONDOWN:
+			# 	if event.button == 1:
+			# 		if popup_type:
+			# 			popup_type = ""
+			# 			continue
+			# 		if UI_state == "MAIN_MENU":
+			# 			if btn_start_rect.collidepoint(mouse_pos):
+			# 				reset_game()
+			# 				UI_state = "GAME_PLAY"
+			# 			elif btn_setting_rect.collidepoint(mouse_pos):
+			# 				UI_state = "SETTINGS"
+			# 				current_setting_index = 0
+			# 			elif btn_exit_rect.collidepoint(mouse_pos):
+			# 				running = False
+			# 		elif UI_state == "SETTINGS":
+			# 			if btn_back_rect.collidepoint(mouse_pos):
+			# 				send_to_all("END")
+			# 				print(f"[디버그] 마우스 BACK 버튼 클릭 -> END 송신")
+			# 				if paused_from_game:
+			# 					resume_game()
+			# 					UI_state = "GAME_PLAY"
+			# 				else:
+			# 					UI_state = "MAIN_MENU"
+			# 					# 메인 메뉴로 돌아갈 때 BGM 정지
+			# 					pygame.mixer.music.stop()
+			# 					print("[BGM] 배경음악 정지 (메인 메뉴)")
+			# 				paused_from_game = False
 
 		if not running:
 			break
@@ -742,12 +837,12 @@ def run_game():
 						sound_enabled = (popup_sub_index == 0)
 						popup_type = ""
 				elif popup_type == "COLOR":
-					if p1_cmd == "UP": popup_sub_index = (popup_sub_index - 1) % 4
-					elif p1_cmd == "DN": popup_sub_index = (popup_sub_index + 1) % 4
+					if p1_cmd == "UP": popup_sub_index = (popup_sub_index - 1) % 3
+					elif p1_cmd == "DN": popup_sub_index = (popup_sub_index + 1) % 3
 					elif p1_cmd == "CLK":
 						if popup_sub_index == 0: p1_color_idx = (p1_color_idx + 1) % len(COLOR_OPTIONS)
 						elif popup_sub_index == 1: p2_color_idx = (p2_color_idx + 1) % len(COLOR_OPTIONS)
-						elif popup_sub_index in [2, 3]: popup_type = ""
+						elif popup_sub_index == 2: popup_type = ""
 				elif popup_type == "GAME_CUSTOM":
 					if p1_cmd in ["UP", "DN"]: popup_sub_index = (popup_sub_index + 1) % 2
 					elif p1_cmd == "CLK":
@@ -800,9 +895,9 @@ def run_game():
 		elif UI_state == "GAME_OVER":
 			game_over_timer -= dt
 			if game_over_timer <= 0:
-				# 5초 후 빈 문자열 송신
-				send_to_all("")
-				print("[ESP32 송신] 빈 문자열 (게임 종료 5초 후)")
+				# 5초 후 "Ready" 송신
+				send_to_all("Ready")
+				print("[ESP32 송신] Ready (게임 종료 5초 후)")
 				UI_state = "MAIN_MENU"
 				game_over_timer = 0
 				game_over_winner = 0
@@ -813,8 +908,9 @@ def run_game():
 				goal_sound_playing = False
 				goal_sound_channel = None
 				# 골 사운드 종료 후 BGM 재개
-				pygame.mixer.music.unpause()
-				print("[BGM] 배경음악 재개 (골 사운드 종료)")
+				if sound_enabled:
+					pygame.mixer.music.unpause()
+					print("[BGM] 배경음악 재개 (골 사운드 종료)")
 
 		if UI_state == "GAME_PLAY" and not countdown_active and not goal_sound_playing:
 			keys = pygame.key.get_pressed()
@@ -825,8 +921,6 @@ def run_game():
 			if keys[pygame.K_s]: move_p1_y = paddle_speed
 			if keys[pygame.K_a]: move_p1_x = -paddle_speed
 			if keys[pygame.K_d]: move_p1_x = paddle_speed
-
-			print(f"[패들 이동] p1_joy: ({p1_joy_x:.2f}, {p1_joy_y:.2f}), move: ({move_p1_x:.2f}, {move_p1_y:.2f})")
 
 			p1_cx += int(move_p1_x)
 			p1_cy += int(move_p1_y)
@@ -938,11 +1032,12 @@ def run_game():
 					particles.append(Particle(p1_goal.centerx, p1_goal.centery, COLOR_OPTIONS[p2_color_idx], random.uniform(-6, 6), random.uniform(-6, 6), 50))
 				
 				# 골 사운드 재생 (BGM 일시정지)
-				pygame.mixer.music.pause()
-				print("[BGM] 배경음악 일시정지 (골 사운드)")
-				goal_sound_idx = random.randint(0, 1)
-				goal_sound_channel = goal_sounds[goal_sound_idx].play()
-				goal_sound_playing = True
+				if sound_enabled:
+					pygame.mixer.music.pause()
+					print("[BGM] 배경음악 일시정지 (골 사운드)")
+					goal_sound_idx = random.randint(0, 1)
+					goal_sound_channel = goal_sounds[goal_sound_idx].play()
+					goal_sound_playing = True
 				
 			elif ball_rect.colliderect(p2_goal):
 				p1_score += 1
@@ -956,11 +1051,12 @@ def run_game():
 					particles.append(Particle(p2_goal.centerx, p2_goal.centery, COLOR_OPTIONS[p1_color_idx], random.uniform(-6, 6), random.uniform(-6, 6), 50))
 				
 				# 골 사운드 재생 (BGM 일시정지)
-				pygame.mixer.music.pause()
-				print("[BGM] 배경음악 일시정지 (골 사운드)")
-				goal_sound_idx = random.randint(0, 1)
-				goal_sound_channel = goal_sounds[goal_sound_idx].play()
-				goal_sound_playing = True
+				if sound_enabled:
+					pygame.mixer.music.pause()
+					print("[BGM] 배경음악 일시정지 (골 사운드)")
+					goal_sound_idx = random.randint(0, 1)
+					goal_sound_channel = goal_sounds[goal_sound_idx].play()
+					goal_sound_playing = True
 			else:
 				if ball_x <= 0:
 					ball_speed_x = abs(ball_speed_x)
@@ -1065,9 +1161,9 @@ def run_game():
 			subtitle_text = small_font.render("GALACTIC EDITION", True, COSMIC_CYAN)
 			screen.blit(subtitle_text, (WIDTH // 2 - subtitle_text.get_width() // 2, int(HEIGHT * 0.26)))
 
-			draw_fancy_button(screen, btn_start_rect, "LAUNCH", btn_font, GREEN, mouse_pos)
-			draw_fancy_button(screen, btn_setting_rect, "SETTINGS", btn_font, NEON_BLUE, mouse_pos)
-			draw_fancy_button(screen, btn_exit_rect, "EXIT", btn_font, RED, mouse_pos)
+			draw_fancy_button(screen, btn_start_rect, "LAUNCH", btn_font, GREEN, mouse_pos, main_menu_index == 0)
+			draw_fancy_button(screen, btn_setting_rect, "SETTINGS", btn_font, NEON_BLUE, mouse_pos, main_menu_index == 1)
+			draw_fancy_button(screen, btn_exit_rect, "EXIT", btn_font, RED, mouse_pos, main_menu_index == 2)
 
 		elif UI_state in ["GAME_PLAY", "PAUSE"]:
 			score_bg = pygame.Rect(WIDTH // 2 - int(WIDTH * 0.12), int(HEIGHT * 0.02), int(WIDTH * 0.24), int(HEIGHT * 0.08))
@@ -1192,7 +1288,7 @@ def run_game():
 						draw_fancy_button(screen, target_rect, text, btn_font, c, mouse_pos, popup_sub_index == idx)
 				elif popup_type == "COLOR":
 					draw_neon_text(screen, "PADDLE COLOR", font, YELLOW, (popup_rect.centerx - font.size("PADDLE COLOR")[0] // 2, popup_rect.top + int(HEIGHT * 0.02)), 1)
-					options_text = [f"P1 COLOR : < {COLOR_NAMES[p1_color_idx]} >", f"P2 COLOR : < {COLOR_NAMES[p2_color_idx]} >", "[ SAVE & EXIT ]", "[ CANCEL ]"]
+					options_text = [f"P1 COLOR : < {COLOR_NAMES[p1_color_idx]} >", f"P2 COLOR : < {COLOR_NAMES[p2_color_idx]} >", "[ BACK ]"]
 					for idx, text in enumerate(options_text):
 						current_y = popup_rect.top + int(HEIGHT * 0.09) + (idx * int(HEIGHT * 0.05))
 						if idx == 0:
@@ -1211,7 +1307,7 @@ def run_game():
 						screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
 				elif popup_type == "SETTING_TIMES":
 					draw_neon_text(screen, "SETTING TIMES", font, YELLOW, (popup_rect.centerx - font.size("SETTING TIMES")[0] // 2, popup_rect.top + int(HEIGHT * 0.02)), 1)
-					options_text = ["1 MINUTE", "1 MINUTE 30 SECONDS", "2 MINUTES", "3 MINUTES", "[ SAVE & EXIT ]"]
+					options_text = ["1 MINUTE", "1 MINUTE 30 SECONDS", "2 MINUTES", "3 MINUTES", "[ BACK ]"]
 					for idx, text in enumerate(options_text):
 						current_y = popup_rect.top + int(HEIGHT * 0.08) + (idx * int(HEIGHT * 0.05))
 						marker = "* " if idx == time_limit_idx else "  "
