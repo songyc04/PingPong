@@ -51,8 +51,8 @@ sound_enabled = True
 p1_color_idx = 0
 p2_color_idx = 1
 game_time_limit = 60000
-time_limit_idx = 0
-TIME_LIMITS = [60000, 90000, 120000, 180000]
+time_limit_idx = 5
+TIME_LIMITS = [i * 1000 for i in range(10, 181, 10)]
 current_theme = 0  # 0: 우주, 1: 축구장
 THEME_NAMES = ["COSMIC", "SOCCER"]
 
@@ -618,9 +618,18 @@ def run_game():
 			if event.type == pygame.QUIT:
 				running = False
 			elif event.type == pygame.KEYDOWN:
+				if goal_sound_playing:
+					continue
 				if event.key == pygame.K_ESCAPE:
 					if popup_type:
-						popup_type = ""
+						if popup_type == "SETTING_TIMES":
+							popup_type = "GAME_CUSTOM"
+							popup_sub_index = 0
+						elif popup_type == "UI_THEME":
+							popup_type = "GAME_CUSTOM"
+							popup_sub_index = 1
+						else:
+							popup_type = ""
 					elif UI_state in ["GAME_PLAY", "PAUSE", "SETTINGS"]:
 						if UI_state == "SETTINGS":
 							send_to_all("END")
@@ -649,7 +658,7 @@ def run_game():
 						elif popup_type == "GAME_CUSTOM":
 							popup_sub_index = (popup_sub_index - 1) % 3
 						elif popup_type == "SETTING_TIMES":
-							popup_sub_index = (popup_sub_index - 1) % 5
+							popup_sub_index = max(0, popup_sub_index - 1)
 						elif popup_type == "UI_THEME":
 							popup_sub_index = (popup_sub_index - 1) % 3
 						elif popup_type == "CREATOR":
@@ -668,7 +677,7 @@ def run_game():
 						elif popup_type == "GAME_CUSTOM":
 							popup_sub_index = (popup_sub_index + 1) % 3
 						elif popup_type == "SETTING_TIMES":
-							popup_sub_index = (popup_sub_index + 1) % 5
+							popup_sub_index = min(len(TIME_LIMITS) - 1, popup_sub_index + 1)
 						elif popup_type == "UI_THEME":
 							popup_sub_index = (popup_sub_index + 1) % 3
 						elif popup_type == "CREATOR":
@@ -711,12 +720,10 @@ def run_game():
 							elif popup_sub_index == 2:
 								popup_type = ""
 						elif popup_type == "SETTING_TIMES":
-							if popup_sub_index < 4:
-								time_limit_idx = popup_sub_index
-								game_time_limit = TIME_LIMITS[time_limit_idx]
-							else:
-								popup_type = "GAME_CUSTOM"
-								popup_sub_index = 0
+							time_limit_idx = popup_sub_index
+							game_time_limit = TIME_LIMITS[time_limit_idx]
+							popup_type = "GAME_CUSTOM"
+							popup_sub_index = 0
 						elif popup_type == "UI_THEME":
 							if popup_sub_index < 2:
 								current_theme = popup_sub_index
@@ -791,6 +798,10 @@ def run_game():
 			if p2_command:
 				p2_cmd = p2_command
 				p2_command = ""
+
+		if goal_sound_playing:
+			p1_cmd = ""
+			p2_cmd = ""
 
 		if UI_state == "MAIN_MENU":
 			if p1_cmd == "SET":
@@ -926,15 +937,13 @@ def run_game():
 						elif popup_sub_index == 2:
 							popup_type = ""
 				elif popup_type == "SETTING_TIMES":
-					if p1_cmd == "UP": popup_sub_index = (popup_sub_index - 1) % 5
-					elif p1_cmd == "DN": popup_sub_index = (popup_sub_index + 1) % 5
+					if p1_cmd == "UP": popup_sub_index = max(0, popup_sub_index - 1)
+					elif p1_cmd == "DN": popup_sub_index = min(len(TIME_LIMITS) - 1, popup_sub_index + 1)
 					elif p1_cmd == "CLK":
-						if popup_sub_index < 4:
-							time_limit_idx = popup_sub_index
-							game_time_limit = TIME_LIMITS[time_limit_idx]
-						else:
-							popup_type = "GAME_CUSTOM"
-							popup_sub_index = 0
+						time_limit_idx = popup_sub_index
+						game_time_limit = TIME_LIMITS[time_limit_idx]
+						popup_type = "GAME_CUSTOM"
+						popup_sub_index = 0
 				elif popup_type == "UI_THEME":
 					if p1_cmd == "UP": popup_sub_index = (popup_sub_index - 1) % 3
 					elif p1_cmd == "DN": popup_sub_index = (popup_sub_index + 1) % 3
@@ -1427,13 +1436,29 @@ def run_game():
 						screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
 				elif popup_type == "SETTING_TIMES":
 					draw_neon_text(screen, "SETTING TIMES", font, YELLOW, (popup_rect.centerx - font.size("SETTING TIMES")[0] // 2, popup_rect.top + int(HEIGHT * 0.02)), 1)
-					options_text = ["1 MINUTE", "1 MINUTE 30 SECONDS", "2 MINUTES", "3 MINUTES", "[ BACK ]"]
-					for idx, text in enumerate(options_text):
-						current_y = popup_rect.top + int(HEIGHT * 0.08) + (idx * int(HEIGHT * 0.05))
+					
+					# 스크롤 방식으로 시간 옵션 표시 (현재 선택된 항목 중심)
+					visible_count = 5
+					start_idx = max(0, min(popup_sub_index - visible_count // 2, len(TIME_LIMITS) - visible_count))
+					end_idx = min(start_idx + visible_count, len(TIME_LIMITS))
+					
+					for display_idx, idx in enumerate(range(start_idx, end_idx)):
+						seconds = TIME_LIMITS[idx] // 1000
+						time_text = f"{seconds} SEC"
+						
+						current_y = popup_rect.top + int(HEIGHT * 0.08) + (display_idx * int(HEIGHT * 0.05))
 						marker = "* " if idx == time_limit_idx else "  "
 						color_val = NEON_GREEN if idx == time_limit_idx else (YELLOW if popup_sub_index == idx else WHITE)
-						txt_s = btn_font.render(marker + text, True, color_val)
+						txt_s = btn_font.render(marker + time_text, True, color_val)
 						screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
+					
+					# 스크롤 표시
+					if start_idx > 0:
+						up_arrow = small_font.render("▲", True, GRAY)
+						screen.blit(up_arrow, (popup_rect.centerx - up_arrow.get_width() // 2, popup_rect.top + int(HEIGHT * 0.06)))
+					if end_idx < len(TIME_LIMITS):
+						down_arrow = small_font.render("▼", True, GRAY)
+						screen.blit(down_arrow, (popup_rect.centerx - down_arrow.get_width() // 2, popup_rect.top + int(HEIGHT * 0.32)))
 				elif popup_type == "UI_THEME":
 					draw_neon_text(screen, "UI THEME", font, YELLOW, (popup_rect.centerx - font.size("UI THEME")[0] // 2, popup_rect.top + int(HEIGHT * 0.03)), 1)
 					options_text = ["COSMIC", "SOCCER", "[ BACK ]"]
