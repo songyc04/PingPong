@@ -637,12 +637,14 @@ def run_game():
 		nonlocal game_over_timer, game_over_winner
 		if p1_score > p2_score:
 			game_over_winner = 1
+			send_to_all("END:WIN:LOSE")
 		elif p2_score > p1_score:
 			game_over_winner = 2
+			send_to_all("END:LOSE:WIN")
 		else:
 			game_over_winner = 0
+			send_to_all("END:DRAW:DRAW")
 
-		send_to_all("END")
 		game_over_timer = 5000  # 5초
 		# 게임 종료 시 BGM 정지
 		pygame.mixer.music.stop()
