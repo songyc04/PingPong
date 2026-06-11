@@ -262,8 +262,11 @@ def draw_neon_rect(surface, color, rect, border_width=2, glow_layers=3, radius=0
 	pygame.draw.rect(surface, color, rect, border_width, border_radius=radius)
 
 
-def draw_joystick_ui(surface, center, radius, label_text, font, color):
-	"""조이스틱 UI를 그리는 함수"""
+def draw_joystick_ui(surface, center, radius, label_text, font, color, animation_type="up", animation_time=0):
+	"""조이스틱 UI를 그리는 함수
+	animation_type: "up" (위로 올리는 움직임), "click" (클릭하는 움직임)
+	animation_time: 애니메이션 시간 (0~1)
+	"""
 	x, y = center
 	
 	# 베이스 (어두운 원)
@@ -274,14 +277,32 @@ def draw_joystick_ui(surface, center, radius, label_text, font, color):
 	inner_radius = int(radius * 0.7)
 	pygame.draw.circle(surface, (60, 60, 80), (x, y), inner_radius)
 	
-	# 스틱 (중앙선)
+	# 애니메이션에 따른 스틱 위치 계산
 	stick_length = int(radius * 0.5)
-	pygame.draw.line(surface, (200, 200, 200), (x, y), (x, y - stick_length), 4)
+	if animation_type == "up":
+		# 위로 올리는 움직임 (sin 곡선)
+		offset_y = int(stick_length * 0.5 * math.sin(animation_time * math.pi * 2))
+		knob_y = y - stick_length + offset_y
+	elif animation_type == "click":
+		# 클릭하는 움직임 (아래로 눌렀다 올라오는)
+		click_phase = (animation_time * 2) % 1  # 0~1 반복
+		if click_phase < 0.5:
+			# 눌리는 단계
+			offset_y = int(stick_length * 0.3 * (click_phase * 2))
+		else:
+			# 올라오는 단계
+			offset_y = int(stick_length * 0.3 * (1 - (click_phase - 0.5) * 2))
+		knob_y = y - stick_length + offset_y
+	else:
+		knob_y = y - stick_length
+	
+	# 스틱 (중앙선)
+	pygame.draw.line(surface, (200, 200, 200), (x, y), (x, knob_y), 4)
 	
 	# 손잡이 (상단 원)
 	knob_radius = int(radius * 0.2)
-	pygame.draw.circle(surface, color, (x, y - stick_length), knob_radius)
-	pygame.draw.circle(surface, WHITE, (x, y - stick_length), knob_radius, 2)
+	pygame.draw.circle(surface, color, (x, knob_y), knob_radius)
+	pygame.draw.circle(surface, WHITE, (x, knob_y), knob_radius, 2)
 	
 	# 라벨 텍스트
 	label_surf = font.render(label_text, True, WHITE)
@@ -525,8 +546,11 @@ def run_game():
 
 	# 조이스틱 UI 영역 (메인 메뉴용)
 	joystick_radius = int(HEIGHT * 0.08)
-	p1_joystick_pos = (int(WIDTH * 0.25), int(HEIGHT * 0.5))
-	p2_joystick_pos = (int(WIDTH * 0.75), int(HEIGHT * 0.5))
+	# 왼쪽: P1, P2 조이스틱 (위로 올리는 움직임)
+	p1_joystick_pos = (int(WIDTH * 0.15), int(HEIGHT * 0.5))
+	p2_joystick_pos = (int(WIDTH * 0.35), int(HEIGHT * 0.5))
+	# 오른쪽: 클릭 조이스틱 (클릭하는 움직임)
+	click_joystick_pos = (int(WIDTH * 0.75), int(HEIGHT * 0.5))
 
 	btn_width, btn_height = int(WIDTH * 0.22), int(HEIGHT * 0.08)
 
@@ -648,7 +672,7 @@ def run_game():
 			if event.type == pygame.QUIT:
 				running = False
 			elif event.type == pygame.KEYDOWN:
-				if goal_sound_playing:
+				if goal_sound_playing or UI_state == "GAME_OVER":
 					continue
 				if event.key == pygame.K_ESCAPE:
 					if popup_type:
@@ -783,13 +807,13 @@ def run_game():
 									pygame.mixer.music.stop()
 									print("[BGM] 배경음악 정지 (메인 메뉴)")
 								paused_from_game = False
-			# 마우스 입력 비활성화
+			# 마우스 입력
 			elif event.type == pygame.MOUSEBUTTONDOWN:
 				if event.button == 1:
-					if UI_state == "MAIN_MENU":
-						# P1 조이스틱 클릭 시 설정으로 이동
-						p1_jx, p1_jy = p1_joystick_pos
-						dist = math.hypot(mouse_pos[0] - p1_jx, mouse_pos[1] - p1_jy)
+					if UI_state == "MAIN_MENU" and not goal_sound_playing:
+						# 오른쪽 클릭 조이스틱 클릭 시 설정으로 이동
+						click_jx, click_jy = click_joystick_pos
+						dist = math.hypot(mouse_pos[0] - click_jx, mouse_pos[1] - click_jy)
 						if dist <= joystick_radius:
 							UI_state = "SETTINGS"
 							current_setting_index = 0
@@ -808,7 +832,7 @@ def run_game():
 				p2_cmd = p2_command
 				p2_command = ""
 
-		if goal_sound_playing:
+		if goal_sound_playing or UI_state == "GAME_OVER":
 			p1_cmd = ""
 			p2_cmd = ""
 
@@ -1132,6 +1156,12 @@ def run_game():
 				for _ in range(40):
 					particles.append(Particle(p1_goal.centerx, p1_goal.centery, COLOR_OPTIONS[p2_color_idx], random.uniform(-6, 6), random.uniform(-6, 6), 50))
 				
+				# 패들 위치 초기화 (골대 앞으로)
+				p1_cx = p1_radius
+				p1_cy = HEIGHT // 2
+				p2_cx = WIDTH - p2_radius
+				p2_cy = HEIGHT // 2
+				
 				# 골 사운드 재생 (BGM 일시정지)
 				if sound_enabled:
 					pygame.mixer.music.pause()
@@ -1150,6 +1180,12 @@ def run_game():
 				goal_flash_color = COLOR_OPTIONS[p1_color_idx]
 				for _ in range(40):
 					particles.append(Particle(p2_goal.centerx, p2_goal.centery, COLOR_OPTIONS[p1_color_idx], random.uniform(-6, 6), random.uniform(-6, 6), 50))
+				
+				# 패들 위치 초기화 (골대 앞으로)
+				p1_cx = p1_radius
+				p1_cy = HEIGHT // 2
+				p2_cx = WIDTH - p2_radius
+				p2_cy = HEIGHT // 2
 				
 				# 골 사운드 재생 (BGM 일시정지)
 				if sound_enabled:
@@ -1293,12 +1329,33 @@ def run_game():
 				subtitle_text = small_font.render("STADIUM EDITION", True, WHITE)
 				screen.blit(subtitle_text, (WIDTH // 2 - subtitle_text.get_width() // 2, int(HEIGHT * 0.26)))
 
-			# 조이스틱 UI 2개 그리기
-			p1_label = "Click to open settings"
-			p2_label = "Push both UP to start game"
+			# 조이스틱 UI 그리기
+			# 왼쪽: P1, P2 조이스틱 (위로 올리는 움직임)
+			animation_time = (global_time % 2000) / 2000.0  # 0~1 반복
+			p1_label = "P1 Joystick"
+			p2_label = "P2 Joystick"
+			left_desc = "Push both UP to start game"
 			
-			draw_joystick_ui(screen, p1_joystick_pos, joystick_radius, p1_label, btn_font, COLOR_OPTIONS[p1_color_idx])
-			draw_joystick_ui(screen, p2_joystick_pos, joystick_radius, p2_label, btn_font, COLOR_OPTIONS[p2_color_idx])
+			draw_joystick_ui(screen, p1_joystick_pos, joystick_radius, p1_label, btn_font, COLOR_OPTIONS[p1_color_idx], "up", animation_time)
+			draw_joystick_ui(screen, p2_joystick_pos, joystick_radius, p2_label, btn_font, COLOR_OPTIONS[p2_color_idx], "up", animation_time)
+			
+			# 왼쪽 설명 텍스트
+			left_desc_surf = small_font.render(left_desc, True, WHITE)
+			left_desc_x = int(WIDTH * 0.25) - left_desc_surf.get_width() // 2
+			left_desc_y = int(HEIGHT * 0.5) + joystick_radius + 60
+			screen.blit(left_desc_surf, (left_desc_x, left_desc_y))
+			
+			# 오른쪽: 클릭 조이스틱 (클릭하는 움직임)
+			click_label = "Settings"
+			right_desc = "Click P1 to open settings"
+			
+			draw_joystick_ui(screen, click_joystick_pos, joystick_radius, click_label, btn_font, NEON_BLUE, "click", animation_time)
+			
+			# 오른쪽 설명 텍스트
+			right_desc_surf = small_font.render(right_desc, True, WHITE)
+			right_desc_x = int(WIDTH * 0.75) - right_desc_surf.get_width() // 2
+			right_desc_y = int(HEIGHT * 0.5) + joystick_radius + 60
+			screen.blit(right_desc_surf, (right_desc_x, right_desc_y))
 
 		elif UI_state in ["GAME_PLAY", "PAUSE"]:
 			score_bg = pygame.Rect(WIDTH // 2 - int(WIDTH * 0.12), int(HEIGHT * 0.02), int(WIDTH * 0.24), int(HEIGHT * 0.08))
