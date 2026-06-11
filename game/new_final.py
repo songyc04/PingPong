@@ -64,6 +64,7 @@ main_menu_index = 0
 
 # --- 카운트다운 및 입력 제어 플래그 ---
 countdown_active = False
+input_blocked = False
 p1_srt_time = 0.0
 p2_srt_time = 0.0
 SRT_WINDOW_MS = 1000
@@ -263,51 +264,50 @@ def draw_neon_rect(surface, color, rect, border_width=2, glow_layers=3, radius=0
 
 
 def draw_joystick_ui(surface, center, radius, label_text, font, color, animation_type="up", animation_time=0):
-	"""조이스틱 UI를 그리는 함수
-	animation_type: "up" (위로 올리는 움직임), "click" (클릭하는 움직임)
-	animation_time: 애니메이션 시간 (0~1)
-	"""
+	"""조이스틱 UI를 그리는 함수 - 패들 아이콘 형태로 변경"""
 	x, y = center
 	
-	# 베이스 (어두운 원)
-	pygame.draw.circle(surface, (40, 40, 60), (x, y), radius)
+	# 베이스 원 (어두운 배경)
+	pygame.draw.circle(surface, (30, 30, 50), (x, y), radius)
 	pygame.draw.circle(surface, color, (x, y), radius, 3)
 	
-	# 내부 원 (밝은 영역)
-	inner_radius = int(radius * 0.7)
-	pygame.draw.circle(surface, (60, 60, 80), (x, y), inner_radius)
+	# 내부 그라데이션 효과
+	for i in range(3):
+		inner_radius = int(radius * (0.8 - i * 0.15))
+		alpha = 40 + i * 20
+		pygame.draw.circle(surface, (50 + alpha, 50 + alpha, 70 + alpha), (x, y), inner_radius)
 	
-	# 애니메이션에 따른 스틱 위치 계산
-	stick_length = int(radius * 0.5)
+	# 패들 아이콘 그리기 (애니메이션 적용)
+	paddle_size = int(radius * 0.4)
+	
 	if animation_type == "up":
-		# 위로 올리는 움직임 (sin 곡선)
-		offset_y = int(stick_length * 0.5 * math.sin(animation_time * math.pi * 2))
-		knob_y = y - stick_length + offset_y
+		# 위로 움직이는 패들
+		offset_y = int(radius * 0.3 * math.sin(animation_time * math.pi * 2))
+		paddle_y = y + offset_y
 	elif animation_type == "click":
-		# 클릭하는 움직임 (아래로 눌렀다 올라오는)
-		click_phase = (animation_time * 2) % 1  # 0~1 반복
+		# 눌렀다 올라오는 패들
+		click_phase = (animation_time * 2) % 1
 		if click_phase < 0.5:
-			# 눌리는 단계
-			offset_y = int(stick_length * 0.3 * (click_phase * 2))
+			scale = 1.0 - click_phase * 0.4
 		else:
-			# 올라오는 단계
-			offset_y = int(stick_length * 0.3 * (1 - (click_phase - 0.5) * 2))
-		knob_y = y - stick_length + offset_y
+			scale = 0.8 + (click_phase - 0.5) * 0.4
+		paddle_y = y
+		paddle_size = int(paddle_size * scale)
 	else:
-		knob_y = y - stick_length
+		paddle_y = y
 	
-	# 스틱 (중앙선)
-	pygame.draw.line(surface, (200, 200, 200), (x, y), (x, knob_y), 4)
+	# 패들 그리기 (원형)
+	pygame.draw.circle(surface, color, (x, paddle_y), paddle_size)
+	pygame.draw.circle(surface, WHITE, (x, paddle_y), paddle_size, 3)
 	
-	# 손잡이 (상단 원)
-	knob_radius = int(radius * 0.2)
-	pygame.draw.circle(surface, color, (x, knob_y), knob_radius)
-	pygame.draw.circle(surface, WHITE, (x, knob_y), knob_radius, 2)
+	# 패들 내부 하이라이트
+	highlight_size = int(paddle_size * 0.3)
+	pygame.draw.circle(surface, (255, 255, 255, 150), (x - paddle_size // 3, paddle_y - paddle_size // 3), highlight_size)
 	
 	# 라벨 텍스트
 	label_surf = font.render(label_text, True, WHITE)
 	label_x = x - label_surf.get_width() // 2
-	label_y = y + radius + 20
+	label_y = y + radius + 25
 	surface.blit(label_surf, (label_x, label_y))
 
 
@@ -344,7 +344,7 @@ def parse_joystick_value(raw_msg, player):
 	global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
 	global p1_raw_x, p1_raw_y, p2_raw_x, p2_raw_y
 
-	if countdown_active:
+	if input_blocked:
 		return
 
 	try:
@@ -413,6 +413,9 @@ def p1_udp_thread():
 			if not data:
 				continue
 
+			if input_blocked:
+				continue
+
 			raw_msg = data.decode("utf-8").strip()
 
 			if ':' in raw_msg:
@@ -449,6 +452,9 @@ def p2_udp_thread():
 			if not data:
 				continue
 
+			if input_blocked:
+				continue
+
 			raw_msg = data.decode("utf-8").strip()
 
 			if ':' in raw_msg:
@@ -471,7 +477,7 @@ def run_game():
 	global sound_enabled, p1_color_idx, p2_color_idx
 	global p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
 	global p1_raw_x, p1_raw_y, p2_raw_x, p2_raw_y
-	global game_time_limit, time_limit_idx, countdown_active
+	global game_time_limit, time_limit_idx, countdown_active, input_blocked
 	global p1_command, p2_command
 	global p1_srt_time, p2_srt_time
 
@@ -821,6 +827,11 @@ def run_game():
 		if not running:
 			break
 
+		if goal_sound_playing or UI_state == "GAME_OVER":
+			input_blocked = True
+		else:
+			input_blocked = False
+
 		p1_cmd = ""
 		p2_cmd = ""
 		with p1_cmd_lock:
@@ -832,7 +843,7 @@ def run_game():
 				p2_cmd = p2_command
 				p2_command = ""
 
-		if goal_sound_playing or UI_state == "GAME_OVER":
+		if input_blocked:
 			p1_cmd = ""
 			p2_cmd = ""
 
@@ -1107,15 +1118,40 @@ def run_game():
 						particles.append(Particle(ball_cx, ball_cy, COLOR_OPTIONS[p1_color_idx]))
 				else:
 					if distance1 == 0: distance1 = 0.1
+					
+					# 법선 벡터 계산 (패들 중심 → 공 중심)
 					nx, ny = dx1 / distance1, dy1 / distance1
+					
+					# 공을 패들에서 완전히 분리
+					separation = min_dist1 - distance1 + 2
+					ball_x += nx * separation
+					ball_y += ny * separation
+					
+					# 반사 벡터 계산
 					dot_product = ball_speed_x * nx + ball_speed_y * ny
-					ball_speed_x = ball_speed_x - 2 * dot_product * nx
-					ball_speed_y = ball_speed_y - 2 * dot_product * ny
-					ball_cx = p1_cx + nx * min_dist1
-					ball_cy = p1_cy + ny * min_dist1
-					ball_x, ball_y = ball_cx - ball_radius, ball_cy - ball_radius
+					
+					# 공이 패들을 향해 이동 중일 때만 반사
+					if dot_product < 0:
+						# 기본 반사
+						reflected_x = ball_speed_x - 2 * dot_product * nx
+						reflected_y = ball_speed_y - 2 * dot_product * ny
+						
+						# 최소 반사 각도 보장 (완전히 수직 반사 방지)
+						min_angle = 0.3  # 약 17도
+						angle = math.atan2(reflected_y, reflected_x)
+						if abs(math.cos(angle)) < min_angle:
+							if reflected_x > 0:
+								angle = math.acos(min_angle) if reflected_y > 0 else -math.acos(min_angle)
+							else:
+								angle = math.pi - math.acos(min_angle) if reflected_y > 0 else math.pi + math.acos(min_angle)
+						
+						# 속도 크기 정규화
+						target_speed = math.hypot(base_ball_speed_x, base_ball_speed_y)
+						ball_speed_x = math.cos(angle) * target_speed
+						ball_speed_y = math.sin(angle) * target_speed
+					
 					for _ in range(12):
-						particles.append(Particle(ball_cx, ball_cy, COLOR_OPTIONS[p1_color_idx]))
+						particles.append(Particle(ball_x + ball_radius, ball_y + ball_radius, COLOR_OPTIONS[p1_color_idx]))
 
 			dx2, dy2 = ball_cx - p2_cx, ball_cy - p2_cy
 			distance2 = math.hypot(dx2, dy2)
@@ -1133,15 +1169,40 @@ def run_game():
 						particles.append(Particle(ball_cx, ball_cy, COLOR_OPTIONS[p2_color_idx]))
 				else:
 					if distance2 == 0: distance2 = 0.1
+					
+					# 법선 벡터 계산 (패들 중심 → 공 중심)
 					nx, ny = dx2 / distance2, dy2 / distance2
+					
+					# 공을 패들에서 완전히 분리
+					separation = min_dist2 - distance2 + 2
+					ball_x += nx * separation
+					ball_y += ny * separation
+					
+					# 반사 벡터 계산
 					dot_product = ball_speed_x * nx + ball_speed_y * ny
-					ball_speed_x = ball_speed_x - 2 * dot_product * nx
-					ball_speed_y = ball_speed_y - 2 * dot_product * ny
-					ball_cx = p2_cx + nx * min_dist2
-					ball_cy = p2_cy + ny * min_dist2
-					ball_x, ball_y = ball_cx - ball_radius, ball_cy - ball_radius
+					
+					# 공이 패들을 향해 이동 중일 때만 반사
+					if dot_product < 0:
+						# 기본 반사
+						reflected_x = ball_speed_x - 2 * dot_product * nx
+						reflected_y = ball_speed_y - 2 * dot_product * ny
+						
+						# 최소 반사 각도 보장 (완전히 수직 반사 방지)
+						min_angle = 0.3  # 약 17도
+						angle = math.atan2(reflected_y, reflected_x)
+						if abs(math.cos(angle)) < min_angle:
+							if reflected_x > 0:
+								angle = math.acos(min_angle) if reflected_y > 0 else -math.acos(min_angle)
+							else:
+								angle = math.pi - math.acos(min_angle) if reflected_y > 0 else math.pi + math.acos(min_angle)
+						
+						# 속도 크기 정규화
+						target_speed = math.hypot(base_ball_speed_x, base_ball_speed_y)
+						ball_speed_x = math.cos(angle) * target_speed
+						ball_speed_y = math.sin(angle) * target_speed
+					
 					for _ in range(12):
-						particles.append(Particle(ball_cx, ball_cy, COLOR_OPTIONS[p2_color_idx]))
+						particles.append(Particle(ball_x + ball_radius, ball_y + ball_radius, COLOR_OPTIONS[p2_color_idx]))
 
 			ball_rect = pygame.Rect(ball_x, ball_y, ball_size, ball_size)
 
