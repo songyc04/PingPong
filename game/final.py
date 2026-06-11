@@ -262,6 +262,34 @@ def draw_neon_rect(surface, color, rect, border_width=2, glow_layers=3, radius=0
 	pygame.draw.rect(surface, color, rect, border_width, border_radius=radius)
 
 
+def draw_joystick_ui(surface, center, radius, label_text, font, color):
+	"""조이스틱 UI를 그리는 함수"""
+	x, y = center
+	
+	# 베이스 (어두운 원)
+	pygame.draw.circle(surface, (40, 40, 60), (x, y), radius)
+	pygame.draw.circle(surface, color, (x, y), radius, 3)
+	
+	# 내부 원 (밝은 영역)
+	inner_radius = int(radius * 0.7)
+	pygame.draw.circle(surface, (60, 60, 80), (x, y), inner_radius)
+	
+	# 스틱 (중앙선)
+	stick_length = int(radius * 0.5)
+	pygame.draw.line(surface, (200, 200, 200), (x, y), (x, y - stick_length), 4)
+	
+	# 손잡이 (상단 원)
+	knob_radius = int(radius * 0.2)
+	pygame.draw.circle(surface, color, (x, y - stick_length), knob_radius)
+	pygame.draw.circle(surface, WHITE, (x, y - stick_length), knob_radius, 2)
+	
+	# 라벨 텍스트
+	label_surf = font.render(label_text, True, WHITE)
+	label_x = x - label_surf.get_width() // 2
+	label_y = y + radius + 20
+	surface.blit(label_surf, (label_x, label_y))
+
+
 def draw_fancy_button(surface, rect, text, font, base_color, mouse_pos, is_selected=False):
 	is_hover = rect.collidepoint(mouse_pos)
 	if is_hover or is_selected:
@@ -495,10 +523,12 @@ def run_game():
 		countdown_font = pygame.font.SysFont("malgungothic", int(HEIGHT * 0.18), bold=True)
 		small_font = pygame.font.SysFont("malgungothic", int(HEIGHT * 0.025))
 
+	# 조이스틱 UI 영역 (메인 메뉴용)
+	joystick_radius = int(HEIGHT * 0.08)
+	p1_joystick_pos = (int(WIDTH * 0.25), int(HEIGHT * 0.5))
+	p2_joystick_pos = (int(WIDTH * 0.75), int(HEIGHT * 0.5))
+
 	btn_width, btn_height = int(WIDTH * 0.22), int(HEIGHT * 0.08)
-	btn_start_rect = pygame.Rect(WIDTH // 2 - btn_width // 2, int(HEIGHT * 0.45), btn_width, btn_height)
-	btn_setting_rect = pygame.Rect(WIDTH // 2 - btn_width // 2, int(HEIGHT * 0.58), btn_width, btn_height)
-	btn_exit_rect = pygame.Rect(WIDTH // 2 - btn_width // 2, int(HEIGHT * 0.71), btn_width, btn_height)
 
 	setting_box_width, setting_box_height = int(WIDTH * 0.6), int(HEIGHT * 0.5)
 	setting_box_rect = pygame.Rect(WIDTH // 2 - setting_box_width // 2, int(HEIGHT * 0.3), setting_box_width, setting_box_height)
@@ -647,10 +677,18 @@ def run_game():
 					else:
 						running = False
 				
-				elif event.key == pygame.K_UP:
+				elif event.key == pygame.K_1:
 					if UI_state == "MAIN_MENU":
-						main_menu_index = (main_menu_index - 1) % 3
-					elif UI_state == "SETTINGS":
+						reset_game()
+						UI_state = "GAME_PLAY"
+				
+				elif event.key == pygame.K_2:
+					if UI_state == "MAIN_MENU":
+						UI_state = "SETTINGS"
+						current_setting_index = 0
+				
+				elif event.key == pygame.K_UP:
+					if UI_state == "SETTINGS":
 						if popup_type == "SOUND":
 							popup_sub_index = (popup_sub_index - 1) % 3
 						elif popup_type == "COLOR":
@@ -667,9 +705,7 @@ def run_game():
 							current_setting_index = (current_setting_index - 1) % 5
 				
 				elif event.key == pygame.K_DOWN:
-					if UI_state == "MAIN_MENU":
-						main_menu_index = (main_menu_index + 1) % 3
-					elif UI_state == "SETTINGS":
+					if UI_state == "SETTINGS":
 						if popup_type == "SOUND":
 							popup_sub_index = (popup_sub_index + 1) % 3
 						elif popup_type == "COLOR":
@@ -686,16 +722,7 @@ def run_game():
 							current_setting_index = (current_setting_index + 1) % 5
 				
 				elif event.key == pygame.K_RETURN:
-					if UI_state == "MAIN_MENU":
-						if main_menu_index == 0:
-							reset_game()
-							UI_state = "GAME_PLAY"
-						elif main_menu_index == 1:
-							UI_state = "SETTINGS"
-							current_setting_index = 0
-						elif main_menu_index == 2:
-							running = False
-					elif UI_state == "SETTINGS":
+					if UI_state == "SETTINGS":
 						if popup_type == "SOUND":
 							if popup_sub_index == 0:
 								sound_enabled = True
@@ -757,33 +784,15 @@ def run_game():
 									print("[BGM] 배경음악 정지 (메인 메뉴)")
 								paused_from_game = False
 			# 마우스 입력 비활성화
-			# elif event.type == pygame.MOUSEBUTTONDOWN:
-			# 	if event.button == 1:
-			# 		if popup_type:
-			# 			popup_type = ""
-			# 			continue
-			# 		if UI_state == "MAIN_MENU":
-			# 			if btn_start_rect.collidepoint(mouse_pos):
-			# 				reset_game()
-			# 				UI_state = "GAME_PLAY"
-			# 			elif btn_setting_rect.collidepoint(mouse_pos):
-			# 				UI_state = "SETTINGS"
-			# 				current_setting_index = 0
-			# 			elif btn_exit_rect.collidepoint(mouse_pos):
-			# 				running = False
-			# 		elif UI_state == "SETTINGS":
-			# 			if btn_back_rect.collidepoint(mouse_pos):
-			# 				send_to_all("END")
-			# 				print(f"[디버그] 마우스 BACK 버튼 클릭 -> END 송신")
-			# 				if paused_from_game:
-			# 					resume_game()
-			# 					UI_state = "GAME_PLAY"
-			# 				else:
-			# 					UI_state = "MAIN_MENU"
-			# 					# 메인 메뉴로 돌아갈 때 BGM 정지
-			# 					pygame.mixer.music.stop()
-			# 					print("[BGM] 배경음악 정지 (메인 메뉴)")
-			# 				paused_from_game = False
+			elif event.type == pygame.MOUSEBUTTONDOWN:
+				if event.button == 1:
+					if UI_state == "MAIN_MENU":
+						# P1 조이스틱 클릭 시 설정으로 이동
+						p1_jx, p1_jy = p1_joystick_pos
+						dist = math.hypot(mouse_pos[0] - p1_jx, mouse_pos[1] - p1_jy)
+						if dist <= joystick_radius:
+							UI_state = "SETTINGS"
+							current_setting_index = 0
 
 		if not running:
 			break
@@ -1275,18 +1284,21 @@ def run_game():
 				title_color = (min(255, 150 + title_glow_offset * 20), min(255, 100 + title_glow_offset * 10), 255)
 				game_title = "PADDLE MASTERS"
 				draw_neon_text(screen, game_title, title_font, title_color, (WIDTH // 2 - title_font.size(game_title)[0] // 2, int(HEIGHT * 0.15)), 3)
-				subtitle_text = small_font.render("GALACTIC EDITION", True, COSMIC_CYAN)
+				subtitle_text = small_font.render("GALACTIC EDITION", True, WHITE)
 				screen.blit(subtitle_text, (WIDTH // 2 - subtitle_text.get_width() // 2, int(HEIGHT * 0.26)))
 			else:  # 축구장 테마
 				title_color = (255, 255, 255)
 				game_title = "PADDLE MASTERS"
 				draw_neon_text(screen, game_title, title_font, title_color, (WIDTH // 2 - title_font.size(game_title)[0] // 2, int(HEIGHT * 0.15)), 3)
-				subtitle_text = small_font.render("STADIUM EDITION", True, (34, 139, 34))
+				subtitle_text = small_font.render("STADIUM EDITION", True, WHITE)
 				screen.blit(subtitle_text, (WIDTH // 2 - subtitle_text.get_width() // 2, int(HEIGHT * 0.26)))
 
-			draw_fancy_button(screen, btn_start_rect, "LAUNCH", btn_font, GREEN, mouse_pos, main_menu_index == 0)
-			draw_fancy_button(screen, btn_setting_rect, "SETTINGS", btn_font, NEON_BLUE, mouse_pos, main_menu_index == 1)
-			draw_fancy_button(screen, btn_exit_rect, "EXIT", btn_font, RED, mouse_pos, main_menu_index == 2)
+			# 조이스틱 UI 2개 그리기
+			p1_label = "Click to open settings"
+			p2_label = "Push both UP to start game"
+			
+			draw_joystick_ui(screen, p1_joystick_pos, joystick_radius, p1_label, btn_font, COLOR_OPTIONS[p1_color_idx])
+			draw_joystick_ui(screen, p2_joystick_pos, joystick_radius, p2_label, btn_font, COLOR_OPTIONS[p2_color_idx])
 
 		elif UI_state in ["GAME_PLAY", "PAUSE"]:
 			score_bg = pygame.Rect(WIDTH // 2 - int(WIDTH * 0.12), int(HEIGHT * 0.02), int(WIDTH * 0.24), int(HEIGHT * 0.08))
