@@ -50,9 +50,9 @@ p2_raw_x, p2_raw_y = 0, 0
 sound_enabled = True
 p1_color_idx = 0
 p2_color_idx = 1
-game_time_limit = 30000
-time_limit_idx = 1
-TIME_LIMITS = [10000, 30000, 60000, 120000]
+game_time_limit = 60000
+time_limit_idx = 0
+TIME_LIMITS = [60000, 90000, 120000, 180000]
 
 # --- 설정 화면 커서 및 팝업 상태 정의 ---
 current_setting_index = 0
@@ -415,7 +415,7 @@ def run_game():
 	goal_width = int(WIDTH * 0.008)
 	goal_height = int(HEIGHT * 0.3)
 
-	paddle_speed = int(HEIGHT * 0.02)
+	paddle_speed = int(HEIGHT * 0.016)
 	base_ball_speed_x = int(WIDTH * 0.008)
 	base_ball_speed_y = int(HEIGHT * 0.008)
 
@@ -1194,7 +1194,7 @@ def run_game():
 						screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
 				elif popup_type == "SETTING_TIMES":
 					draw_neon_text(screen, "SETTING TIMES", font, YELLOW, (popup_rect.centerx - font.size("SETTING TIMES")[0] // 2, popup_rect.top + int(HEIGHT * 0.02)), 1)
-					options_text = ["10 SECONDS", "30 SECONDS", "1 MINUTE", "2 MINUTES", "[ SAVE & EXIT ]"]
+					options_text = ["1 MINUTE", "1 MINUTE 30 SECONDS", "2 MINUTES", "3 MINUTES", "[ SAVE & EXIT ]"]
 					for idx, text in enumerate(options_text):
 						current_y = popup_rect.top + int(HEIGHT * 0.08) + (idx * int(HEIGHT * 0.05))
 						marker = "* " if idx == time_limit_idx else "  "
