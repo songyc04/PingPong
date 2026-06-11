@@ -385,18 +385,18 @@ def run_game():
 	pygame.mixer.init()
 	
 	# 배경음악 파일 목록
-	bgm_files = ["sound/back_01.mp3", "sound/back_02.mp3"]
+	bgm_files = ["game/sound/back_01.mp3", "game/sound/back_02.mp3"]
 	
 	# 골 사운드 파일 로드
-	goal_sound_01 = pygame.mixer.Sound("sound/goal_01.mp3")
-	goal_sound_02 = pygame.mixer.Sound("sound/goal_02.mp3")
+	goal_sound_01 = pygame.mixer.Sound("game/sound/goal_01.mp3")
+	goal_sound_02 = pygame.mixer.Sound("game/sound/goal_02.mp3")
 	goal_sound_01.set_volume(0.5)
 	goal_sound_02.set_volume(0.5)
 	goal_sounds = [goal_sound_01, goal_sound_02]
 	goal_sound_channel = None
 	goal_sound_playing = False
 
-	detect_sound = pygame.mixer.Sound("sound/detect.mp3")
+	detect_sound = pygame.mixer.Sound("game/sound/detect.mp3")
 	detect_sound.set_volume(0.5)
 
 	info = pygame.display.Info()
