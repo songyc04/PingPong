@@ -90,7 +90,7 @@ int RAW_LR_MID = 2048;
 int RAW_UD_MID = 2048;
 
 // ─── 게임 상태 ────────────────────────────────────────────
-enum GameState { STATE_END, STATE_SET, STATE_SRT };
+enum GameState { STATE_END, STATE_SET, STATE_SRT, STATE_STP};
 volatile GameState gState         = STATE_END;
 volatile bool      joystickActive = false; // score the goal! 수신 시 true 전환
 volatile int       setMenuCursor  = 0;
@@ -251,11 +251,20 @@ void networkRxLoop(void* pvParameters) {
           vTaskDelay(1 / portTICK_PERIOD_MS);
           continue;
         } 
-        else if (response == "END" || response == "STOP") {
+        else if (response == "STP") {
+          gState         = STATE_STP;
+          joystickActive = false;
+          resetMenuFlags = true;
+          vTaskDelay(1 / portTICK_PERIOD_MS);
+          requestLCD("MAIN MENU");
+          continue;
+        } 
+        else if (response == "END") {
           gState         = STATE_END;
           joystickActive = false;
           resetMenuFlags = true;
           vTaskDelay(1 / portTICK_PERIOD_MS);
+          requestLCD("READY...");
           continue;
         } 
         else if (response == "SET") {
@@ -265,6 +274,7 @@ void networkRxLoop(void* pvParameters) {
           resetMenuFlags = true;
           requestLCD("SET");
           vTaskDelay(1 / portTICK_PERIOD_MS);
+          requestLCD("SETTING");
           continue;
         } 
         else if (response == "SRT") {
@@ -272,6 +282,7 @@ void networkRxLoop(void* pvParameters) {
           joystickActive = true;
           requestLCD("SRT");
           vTaskDelay(1 / portTICK_PERIOD_MS);
+          requestLCD("MATCH P1 vs p2");
           continue;
         }
 
@@ -390,12 +401,6 @@ void loop() {
   int cx = getFilteredX();
   int cy = getFilteredY();
 
-  // 인게임 외의 모드에서만 상태 디버그 시리얼 모니터링 가동 (150ms)
-  if (gState != STATE_SRT && now - tLastDebugPrint >= 150) {
-    Serial.printf("🔍 [모니터] X:%4d  Y:%4d\n", cx, cy);
-    tLastDebugPrint = now;
-  }
-
   // ── P1 코어 기능에 기한 동작 분기 ──────────────────────────────
 
   // 1. 메인 메뉴 대기 화면 모드
@@ -412,6 +417,7 @@ void loop() {
   else if (gState == STATE_SET) {
     bool isUp   = (cy < JOY_MID - JOY_THRESH);
     bool isDown = (cy > JOY_MID + JOY_THRESH);
+    (gState  == STATE_STP);
 
     if (isUp && !lastMenuUp) {
       sendUDP("UP\n");
