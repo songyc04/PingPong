@@ -481,9 +481,6 @@ def run_game():
 	global p1_command, p2_command
 	global p1_srt_time, p2_srt_time
 
-	send_to_all("END")
-	print("[초기화] ESP32 보드에 END 송신")
-
 	pygame.init()
 	pygame.mixer.init()
 	
@@ -640,15 +637,10 @@ def run_game():
 		nonlocal game_over_timer, game_over_winner
 		if p1_score > p2_score:
 			game_over_winner = 1
-			send_to_p1("You Win!")
-			send_to_p2("You Lose...")
 		elif p2_score > p1_score:
 			game_over_winner = 2
-			send_to_p1("You Lose...")
-			send_to_p2("You Win!")
 		else:
 			game_over_winner = 0
-			send_to_all("DRAW -_-")
 
 		send_to_all("END")
 		game_over_timer = 5000  # 5초
@@ -697,15 +689,20 @@ def run_game():
 							popup_type = ""
 					elif UI_state in ["GAME_PLAY", "PAUSE", "SETTINGS"]:
 						if UI_state == "SETTINGS":
-							send_to_all("SET")
-							print(f"[디버그] ESC로 설정창 나가기 -> SET 송신")
+							# 이전 상태에 따라 다른 명령어 송신
+							if paused_from_game:
+								send_to_all("STP")
+								print(f"[디버그] ESC로 설정창 나가기 -> STP 송신 (게임 복귀)")
+							else:
+								send_to_all("END")
+								print(f"[디버그] ESC로 설정창 나가기 -> END 송신 (메인메뉴 복귀)")
+						
 						if UI_state == "SETTINGS" and paused_from_game:
 							resume_game()
 							UI_state = "GAME_PLAY"
 						else:
 							UI_state = "MAIN_MENU"
 							countdown_active = False
-							# 메인 메뉴로 돌아갈 때 BGM 정지
 							pygame.mixer.music.stop()
 							print("[BGM] 배경음악 정지 (메인 메뉴)")
 						paused_from_game = False
@@ -808,16 +805,23 @@ def run_game():
 							elif current_setting_index == 3:
 								popup_type = "CREATOR"
 								popup_sub_index = 0
-							elif current_setting_index == 4:
-								send_to_all("END")
-								if paused_from_game:
-									resume_game()
-									UI_state = "GAME_PLAY"
-								else:
-									UI_state = "MAIN_MENU"
-									pygame.mixer.music.stop()
-									print("[BGM] 배경음악 정지 (메인 메뉴)")
-								paused_from_game = False
+				elif current_setting_index == 4:
+						# 이전 상태에 따라 다른 명령어 송신
+						if paused_from_game:
+							send_to_all("STP")
+							print(f"[디버그] 마우스 BACK 클릭 -> STP 송신 (게임 복귀)")
+						else:
+							send_to_all("END")
+							print(f"[디버그] 마우스 BACK 클릭 -> END 송신 (메인메뉴 복귀)")
+						
+						if paused_from_game:
+							resume_game()
+							UI_state = "GAME_PLAY"
+						else:
+							UI_state = "MAIN_MENU"
+							pygame.mixer.music.stop()
+							print("[BGM] 배경음악 정지 (메인 메뉴)")
+						paused_from_game = False
 			# 마우스 입력
 			elif event.type == pygame.MOUSEBUTTONDOWN:
 				if event.button == 1:
@@ -852,12 +856,19 @@ def run_game():
 			p1_cmd = ""
 			p2_cmd = ""
 
+		# SRT/STP/END/SET 명령어 수신 시 바로 재전송
+		if p1_cmd in ["SRT", "STP", "END", "SET"]:
+			send_to_all(p1_cmd)
+			print(f"[ESP32 재전송] P1 -> {p1_cmd}")
+		if p2_cmd in ["SRT", "STP", "END", "SET"]:
+			send_to_all(p2_cmd)
+			print(f"[ESP32 재전송] P2 -> {p2_cmd}")
+
 		if UI_state == "MAIN_MENU":
 			if p1_cmd == "SET":
 				UI_state = "SETTINGS"
 				current_setting_index = 0
 				popup_type = ""
-				send_to_all("SET")
 
 			if p1_cmd == "SRT":
 				p1_srt_time = time.time() * 1000
@@ -884,20 +895,11 @@ def run_game():
 				countdown_timer -= dt
 				countdown_scale = 1.0 + 0.3 * math.sin((countdown_timer / 1000.0) * math.pi * 2)
 				
-				# 카운트다운 값 계산 (3, 2, 1)
-				current_countdown = math.ceil(countdown_timer / 1000.0)
-				if current_countdown > 0 and current_countdown != last_countdown_sent:
-					last_countdown_sent = current_countdown
-					send_to_all(str(current_countdown))
-					print(f"[ESP32 송신] 카운트다운: {current_countdown}")
-				
 				if countdown_timer <= 0:
 					countdown_active = False
 					countdown_timer = 0
 					countdown_scale = 1.0
 					last_countdown_sent = 0
-					print("[시스템] 카운트다운 완료 -> score the goal! 송신.")
-					send_to_all("score the goal!")
 					game_timer_active = True
 
 			if UI_state == "GAME_PLAY" and game_timer_active and not goal_sound_playing:
@@ -909,7 +911,6 @@ def run_game():
 					countdown_active = False
 
 			if p1_cmd == "SET":
-				send_to_all("SET")
 				if UI_state == "GAME_PLAY":
 					UI_state = "PAUSE"
 					game_timer_active = False
@@ -918,7 +919,6 @@ def run_game():
 				UI_state = "SETTINGS"
 				current_setting_index = 0
 				popup_type = ""
-				print("[ESP32 송신] 일시정지")
 				# 설정창 진입 시 BGM 일시정지
 				pygame.mixer.music.pause()
 				print("[BGM] 배경음악 일시정지 (설정창 진입)")
@@ -931,27 +931,29 @@ def run_game():
 					game_elapsed_time = 0.0
 					game_timer_active = False
 					countdown_active = False
-					send_to_all("END")
 
 			elif p2_cmd == "STP":
 				if UI_state == "GAME_PLAY":
 					UI_state = "PAUSE"
 					game_timer_active = False
 					countdown_active = False
-					send_to_all("Pause...")
-					print("[ESP32 송신] 일시정지 (P2 STP)")
 
 		elif UI_state == "SETTINGS":
 			if p1_cmd == "SET" or (p1_cmd == "CLK" and current_setting_index == 4 and not popup_type):
 				if current_setting_index == 4 or p1_cmd == "SET":
-					send_to_all("SET")
-					print(f"[디버그] SETTINGS에서 나가기 (p1_cmd={p1_cmd}) -> SET 송신")
+					# 이전 상태에 따라 다른 명령어 송신
+					if paused_from_game:
+						send_to_all("STP")
+						print(f"[디버그] SETTINGS에서 나가기 -> STP 송신 (게임 복귀)")
+					else:
+						send_to_all("END")
+						print(f"[디버그] SETTINGS에서 나가기 -> END 송신 (메인메뉴 복귀)")
+					
 					if paused_from_game:
 						resume_game()
 						UI_state = "GAME_PLAY"
 					else:
 						UI_state = "MAIN_MENU"
-						# 메인 메뉴로 돌아갈 때 BGM 정지
 						pygame.mixer.music.stop()
 						print("[BGM] 배경음악 정지 (메인 메뉴)")
 					paused_from_game = False
@@ -1021,8 +1023,7 @@ def run_game():
 						popup_type = "CREATOR"
 						popup_sub_index = 0
 					elif current_setting_index == 4:
-						send_to_all("SET")
-						print(f"[디버그] P1 CLK로 BACK 선택 -> SET 송신")
+						print(f"[디버그] P1 CLK로 BACK 선택")
 						if paused_from_game:
 							resume_game()
 							UI_state = "GAME_PLAY"
@@ -1036,9 +1037,6 @@ def run_game():
 		elif UI_state == "GAME_OVER":
 			game_over_timer -= dt
 			if game_over_timer <= 0:
-				# 5초 후 "Ready" 송신
-				send_to_all("Ready")
-				print("[ESP32 송신] Ready (게임 종료 5초 후)")
 				UI_state = "MAIN_MENU"
 				game_over_timer = 0
 				game_over_winner = 0
