@@ -146,22 +146,21 @@ int getFilteredY() {
 void requestLCD(const char* text) {
   if (lcdSemaphore == NULL) return;
 
-  if (xSemaphoreTake(lcdSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
+  if (xSemaphoreTake(lcdSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
     size_t len = strlen(text);
+
+    // lcd.clear() 여기서 절대 호출하지 말 것
+    Serial.println(text);
 
     if (len <= 16) {
       snprintf(lcdBuf0, 17, "%-16s", text);
       snprintf(lcdBuf1, 17, "%-16s", "");
     } else {
-      char line0[17];
-      char line1[17];
-
+      char line0[17], line1[17];
       strncpy(line0, text, 16);
       line0[16] = '\0';
-
       strncpy(line1, text + 16, 16);
       line1[16] = '\0';
-
       snprintf(lcdBuf0, 17, "%-16s", line0);
       snprintf(lcdBuf1, 17, "%-16s", line1);
     }
@@ -235,8 +234,19 @@ void networkRxLoop(void* pvParameters) {
         Serial.print(response);
         Serial.println("]");
 
+        if (response.indexOf(':') != -1 && response.indexOf("END") != -1) {
+          gState         = STATE_END;
+          joystickActive = false;
+          resetMenuFlags = true;
+          char part1[10], part2[10], part3[10];
+
+          sscanf(response.c_str(), "%[^:]:%[^:]:%[^:]", part1, part2, part3);
+          Serial.println(String("추출 결과: ") + part2);
+
+          requestLCD(("You " + String(part2)).c_str());
+        }
         // ── P1용 상태 핸들링 및 타이밍 동기화 ──────────────────
-        if (response == "END" || response == "STOP") {
+        else if (response == "END" || response == "STOP") {
           gState         = STATE_END;
           joystickActive = false;
           resetMenuFlags = true;
@@ -246,24 +256,24 @@ void networkRxLoop(void* pvParameters) {
           joystickActive = false;
           setMenuCursor  = 0;
           resetMenuFlags = true;
-          requestLCD("");          // 화면 클리어
+          requestLCD(response.c_str());          // 화면 클리어
         }
         else if (response == "SRT") {
           gState         = STATE_SRT;
-          joystickActive = false;  // 3 2 1 카운트다운 동안 전송 차단 유지
-          requestLCD("");          // 화면 클리어
+          joystickActive = true;  // 3 2 1 카운트다운 동안 전송 차단 유지
+          requestLCD("response");          // 화면 클리어
         }
-        else if (response == "score the goal!") {
-          // ⭐ 설정창에서 바로 복귀할 때 멈추는 문제 방지용 강제 상태 전이
-          gState         = STATE_SRT; 
-          joystickActive = true;
-          tLastSend      = millis();
-        }
-        else if (response.startsWith("WIN")  ||
-                 response.startsWith("LOSE") ||
-                 response.startsWith("DRAW")) {
-          joystickActive = false;  // 결과 출력 타이밍에 송신 중단
-        }
+        // else if (response == "score the goal!") {
+        //   // ⭐ 설정창에서 바로 복귀할 때 멈추는 문제 방지용 강제 상태 전이
+        //   gState         = STATE_SRT; 
+        //   joystickActive = true;
+        //   tLastSend      = millis();
+        // }
+        // else if (response.startsWith("WIN")  ||
+        //          response.startsWith("LOSE") ||
+        //          response.startsWith("DRAW")) {
+        //   joystickActive = false;  // 결과 출력 타이밍에 송신 중단
+        // }
 
         // ── 필터링 조건 (시스템 명령어의 LCD 출력 차단) ──
         // ⭐ 'score the goal!'을 필터링 명단에서 제외하여 LCD에 정상 출력되도록 유지
@@ -365,7 +375,6 @@ void loop() {
     if (gState == STATE_END || gState == STATE_SRT) {
       sendUDP("SET\n");
       // ⭐ 게임 중 설정창 진입 시 확실한 메뉴 조작을 위해 로컬 상태 강제 전이 유지
-      gState         = STATE_SET;
       joystickActive = false;
       setMenuCursor  = 0;
       resetMenuFlags = true;
