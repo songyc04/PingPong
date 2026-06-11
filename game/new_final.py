@@ -857,10 +857,18 @@ def run_game():
 			p2_cmd = ""
 
 		# SRT/STP/END/SET 명령어 수신 시 바로 재전송
-		if p1_cmd in ["SRT", "STP", "END", "SET"]:
+		# 단, MAIN_MENU 상태에서는 SRT를 재전송하지 않음 (게임 시작 동기화용이므로)
+		if p1_cmd in ["STP", "END", "SET"]:
 			send_to_all(p1_cmd)
 			print(f"[ESP32 재전송] P1 -> {p1_cmd}")
-		if p2_cmd in ["SRT", "STP", "END", "SET"]:
+		elif p1_cmd == "SRT" and UI_state != "MAIN_MENU":
+			send_to_all(p1_cmd)
+			print(f"[ESP32 재전송] P1 -> {p1_cmd}")
+
+		if p2_cmd in ["STP", "END", "SET"]:
+			send_to_all(p2_cmd)
+			print(f"[ESP32 재전송] P2 -> {p2_cmd}")
+		elif p2_cmd == "SRT" and UI_state != "MAIN_MENU":
 			send_to_all(p2_cmd)
 			print(f"[ESP32 재전송] P2 -> {p2_cmd}")
 
