@@ -476,9 +476,10 @@ def run_game():
 	goal_flash_timer = 0
 	goal_flash_color = WHITE
 	countdown_scale = 1.0
+	last_countdown_sent = 0
 
 	def reset_game():
-		global countdown_active
+		global countdown_active, last_countdown_sent
 		nonlocal p1_score, p2_score, ball_x, ball_y, ball_active
 		nonlocal p1_cx, p1_cy, p2_cx, p2_cy
 		nonlocal ball_speed_x, ball_speed_y
@@ -497,6 +498,7 @@ def run_game():
 		countdown_timer = 3000
 		countdown_active = True
 		goal_flash_timer = 0
+		last_countdown_sent = 0
 		particles.clear()
 		ball_trail.clear()
 		
@@ -508,13 +510,14 @@ def run_game():
 		print(f"[BGM] 배경음악 재생 시작: {bgm_choice}")
 
 	def resume_game():
-		global countdown_active, p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y
+		global countdown_active, p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y, last_countdown_sent
 		nonlocal countdown_timer, game_timer_active
 		countdown_timer = 3000
 		countdown_active = True
 		game_timer_active = False
 		p1_joy_x, p1_joy_y, p2_joy_x, p2_joy_y = 0.0, 0.0, 0.0, 0.0
 		ball_trail.clear()
+		last_countdown_sent = 0
 		# BGM 재개 (일시정지 상태에서 복귀이므로)
 		pygame.mixer.music.unpause()
 		print("[BGM] 배경음악 재개")
@@ -534,7 +537,7 @@ def run_game():
 			send_to_all("DRAW -_-")
 
 		send_to_all("END")
-		game_over_timer = 3000  # 3초
+		game_over_timer = 5000  # 5초
 		# 게임 종료 시 BGM 정지
 		pygame.mixer.music.stop()
 		print("[BGM] 배경음악 정지 (게임 종료)")
@@ -658,12 +661,21 @@ def run_game():
 			if UI_state == "GAME_PLAY" and countdown_active:
 				countdown_timer -= dt
 				countdown_scale = 1.0 + 0.3 * math.sin((countdown_timer / 1000.0) * math.pi * 2)
+				
+				# 카운트다운 값 계산 (3, 2, 1)
+				current_countdown = math.ceil(countdown_timer / 1000.0)
+				if current_countdown > 0 and current_countdown != last_countdown_sent:
+					last_countdown_sent = current_countdown
+					send_to_all(str(current_countdown))
+					print(f"[ESP32 송신] 카운트다운: {current_countdown}")
+				
 				if countdown_timer <= 0:
 					countdown_active = False
 					countdown_timer = 0
 					countdown_scale = 1.0
-					print("[시스템] 카운트다운 완료 -> SRT 송신.")
-					send_to_all("SRT")
+					last_countdown_sent = 0
+					print("[시스템] 카운트다운 완료 -> score the goal! 송신.")
+					send_to_all("score the goal!")
 					game_timer_active = True
 
 			if UI_state == "GAME_PLAY" and game_timer_active and not goal_sound_playing:
@@ -683,7 +695,8 @@ def run_game():
 				UI_state = "SETTINGS"
 				current_setting_index = 0
 				popup_type = ""
-				send_to_all("SET")
+				send_to_all("Pause...")
+				print("[ESP32 송신] 일시정지")
 				# 설정창 진입 시 BGM 일시정지
 				pygame.mixer.music.pause()
 				print("[BGM] 배경음악 일시정지 (설정창 진입)")
@@ -703,7 +716,8 @@ def run_game():
 					UI_state = "PAUSE"
 					game_timer_active = False
 					countdown_active = False
-					send_to_all("STP")
+					send_to_all("Pause...")
+					print("[ESP32 송신] 일시정지 (P2 STP)")
 
 		elif UI_state == "SETTINGS":
 			if p1_cmd == "SET" or (p1_cmd == "CLK" and current_setting_index == 4 and not popup_type):
@@ -786,6 +800,9 @@ def run_game():
 		elif UI_state == "GAME_OVER":
 			game_over_timer -= dt
 			if game_over_timer <= 0:
+				# 5초 후 빈 문자열 송신
+				send_to_all("")
+				print("[ESP32 송신] 빈 문자열 (게임 종료 5초 후)")
 				UI_state = "MAIN_MENU"
 				game_over_timer = 0
 				game_over_winner = 0
