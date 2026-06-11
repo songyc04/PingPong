@@ -909,6 +909,8 @@ def run_game():
 					countdown_scale = 1.0
 					last_countdown_sent = 0
 					game_timer_active = True
+					send_to_all("SRT")
+					print("[ESP32 송신] 카운트다운 완료 -> SRT")
 
 			if UI_state == "GAME_PLAY" and game_timer_active and not goal_sound_playing:
 				game_elapsed_time += dt
