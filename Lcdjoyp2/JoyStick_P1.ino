@@ -442,7 +442,7 @@ void loop() {
         sendUDP(packet);
         lastSentX = cx;
         lastSentY = cy;
-        Serial.printf("🚀 [송신] X:%4d  Y:%4d\n", cx, cy);
+        Serial.printf("🚀 [송신] :");
       }
       tLastSend = now;
     }
