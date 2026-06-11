@@ -481,6 +481,9 @@ def run_game():
 	global p1_command, p2_command
 	global p1_srt_time, p2_srt_time
 
+	send_to_all("END")
+	print("[초기화] ESP32 보드에 END 송신")
+
 	pygame.init()
 	pygame.mixer.init()
 	
@@ -584,6 +587,7 @@ def run_game():
 	goal_flash_color = WHITE
 	countdown_scale = 1.0
 	last_countdown_sent = 0
+	goal_sound_timer = 0
 
 	def reset_game():
 		global countdown_active, last_countdown_sent
@@ -591,7 +595,7 @@ def run_game():
 		nonlocal p1_cx, p1_cy, p2_cx, p2_cy
 		nonlocal ball_speed_x, ball_speed_y
 		nonlocal game_elapsed_time, game_timer_active
-		nonlocal countdown_timer, goal_flash_timer
+		nonlocal countdown_timer, goal_flash_timer, goal_sound_timer
 		p1_score, p2_score = 0, 0
 		ball_x = WIDTH // 2 - ball_size // 2
 		ball_y = HEIGHT // 2 - ball_size // 2
@@ -605,6 +609,7 @@ def run_game():
 		countdown_timer = 3000
 		countdown_active = True
 		goal_flash_timer = 0
+		goal_sound_timer = 0
 		last_countdown_sent = 0
 		particles.clear()
 		ball_trail.clear()
@@ -1039,14 +1044,19 @@ def run_game():
 				game_over_winner = 0
 
 		# 골 사운드 재생 상태 확인
-		if goal_sound_playing and goal_sound_channel is not None:
-			if not goal_sound_channel.get_busy():
-				goal_sound_playing = False
-				goal_sound_channel = None
-				# 골 사운드 종료 후 BGM 재개
-				if sound_enabled:
-					pygame.mixer.music.unpause()
-					print("[BGM] 배경음악 재개 (골 사운드 종료)")
+		if goal_sound_playing:
+			if sound_enabled and goal_sound_channel is not None:
+				if not goal_sound_channel.get_busy():
+					goal_sound_playing = False
+					goal_sound_channel = None
+					if sound_enabled:
+						pygame.mixer.music.unpause()
+						print("[BGM] 배경음악 재개 (골 사운드 종료)")
+			elif not sound_enabled:
+				goal_sound_timer -= dt
+				if goal_sound_timer <= 0:
+					goal_sound_playing = False
+					goal_sound_timer = 0
 
 		if UI_state == "GAME_PLAY" and not countdown_active and not goal_sound_playing:
 			keys = pygame.key.get_pressed()
@@ -1223,13 +1233,14 @@ def run_game():
 				p2_cx = WIDTH - p2_radius
 				p2_cy = HEIGHT // 2
 				
-				# 골 사운드 재생 (BGM 일시정지)
+				goal_sound_playing = True
 				if sound_enabled:
 					pygame.mixer.music.pause()
 					print("[BGM] 배경음악 일시정지 (골 사운드)")
 					goal_sound_idx = random.randint(0, 2)
 					goal_sound_channel = goal_sounds[goal_sound_idx].play()
-					goal_sound_playing = True
+				else:
+					goal_sound_timer = 4000
 				
 			elif ball_rect.colliderect(p2_goal):
 				p1_score += 1
@@ -1248,13 +1259,14 @@ def run_game():
 				p2_cx = WIDTH - p2_radius
 				p2_cy = HEIGHT // 2
 				
-				# 골 사운드 재생 (BGM 일시정지)
+				goal_sound_playing = True
 				if sound_enabled:
 					pygame.mixer.music.pause()
 					print("[BGM] 배경음악 일시정지 (골 사운드)")
 					goal_sound_idx = random.randint(0, 2)
 					goal_sound_channel = goal_sounds[goal_sound_idx].play()
-					goal_sound_playing = True
+				else:
+					goal_sound_timer = 4000
 			else:
 				if ball_x <= 0:
 					ball_speed_x = abs(ball_speed_x)
