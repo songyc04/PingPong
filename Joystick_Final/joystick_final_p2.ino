@@ -80,7 +80,7 @@ int RAW_LR_MID = 2048;
 int RAW_UD_MID = 2048;
 
 // ─── 게임 상태 ────────────────────────────────────────────
-enum GameState { STATE_END, STATE_SET, STATE_SRT };
+enum GameState { STATE_END, STATE_SET, STATE_SRT, STATE_STP };
 // volatile 명시를 통해 두 코어 간 변수 오염 및 참조 오류를 완벽 차단합니다.
 volatile GameState gState         = STATE_END;
 volatile bool      joystickActive = false; 
@@ -215,37 +215,48 @@ void networkRxLoop(void* pvParameters) {
         Serial.print(response);
         Serial.println("]");
 
-        // ── 상태 핸들링 및 타이밍 동기화 ──────────────────
-        if (response == "END" || response == "STOP") {
+        if (response.indexOf(':') != -1 && response.indexOf("END") != -1) {
           gState         = STATE_END;
           joystickActive = false;
           resetMenuFlags = true;
+          char part1[10], part2[10], part3[10];
+          sscanf(response.c_str(), "%[^:]:%[^:]:%[^:]", part1, part2, part3);
+          Serial.println(String("추출 결과: ") + part3);
+          requestLCD(("You " + String(part3)).c_str());
+          vTaskDelay(1 / portTICK_PERIOD_MS);
+          continue;
+        } 
+        // ── 상태 핸들링 및 타이밍 동기화 ──────────────────
+        else if (response == "END") {
+          gState         = STATE_END;
+          joystickActive = false;
+          resetMenuFlags = true;
+          requestLCD("MAIN MENU");
+          continue;
+        }
+        else if(response == "STP")
+        {
+          gState         = STATE_END;
+          joystickActive = false;
+          resetMenuFlags = true;
+          requestLCD("READY...");
+          continue;
         }
         else if (response == "SET") {
           gState         = STATE_SET;
           joystickActive = false;
           resetMenuFlags = true;
-          requestLCD("");          
+          requestLCD("SETTING");
+          continue;          
         }
         else if (response == "SRT") {
           gState         = STATE_SRT;
           joystickActive = true;
           resetMenuFlags = true;
-          requestLCD("");          
+          requestLCD("MATCH P1 vs P2");
+          continue;          
         }
-        else if (response == "score the goal!") {
-            gState = STATE_SRT;
-            joystickActive = true;
-
-            lastSentX = JOY_MID;
-            lastSentY = JOY_MID;
-            tLastSend = millis();
-        }
-        else if (response.startsWith("WIN")  ||
-                 response.startsWith("LOSE") ||
-                 response.startsWith("DRAW")) {
-          joystickActive = false;  
-        }
+        
 
         // ── 필터링 조건 (시스템 명령어의 LCD 출력 차단) ──
         if (response == "END" || response == "SET" || response == "SRT" || response == "STOP") {
@@ -351,11 +362,6 @@ void loop() {
   int cx = getFilteredX();
   int cy = getFilteredY();
 
-  if (gState != STATE_SRT && now - tLastDebugPrint >= 150) {
-    Serial.printf("🔍 [모니터] X:%4d  Y:%4d\n", cx, cy);
-    tLastDebugPrint = now;
-  }
-
   // ── 상태별 동작 분기 ──────────────────────────────────────
 
   // 1. 메인 메뉴 대기 화면 모드
@@ -366,12 +372,10 @@ void loop() {
     }
     lastUpState = isUp;
   }
-
   // 2. 설정창 모드 - P2는 철저히 먹통 대기
-  else if (gState == STATE_SET) {
+  else if (gState == STATE_SET || gState == STATE_STP) {
     // 무시 패스
   }
-
   // 3. 실시간 게임 세션 루프 (STATE_SRT 플래그 동기화 구동 조건 매핑)
   else if (gState == STATE_SRT && joystickActive) {
     if (now - tLastSend >= SEND_INTERVAL_MS) {
@@ -391,3 +395,4 @@ void loop() {
     }
   }
 }
+
