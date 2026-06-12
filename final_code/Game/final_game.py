@@ -518,8 +518,8 @@ def run_game():
 	goal_height = int(HEIGHT * 0.3)
 
 	paddle_speed = int(HEIGHT * 0.0144)
-	base_ball_speed_x = paddle_speed
-	base_ball_speed_y = paddle_speed
+	base_ball_speed_x = int(paddle_speed * 0.8)
+	base_ball_speed_y = int(paddle_speed * 0.8)
 
 	p1_cx = int(WIDTH * 0.06)
 	p1_cy = HEIGHT // 2
@@ -1052,6 +1052,8 @@ def run_game():
 				UI_state = "MAIN_MENU"
 				game_over_timer = 0
 				game_over_winner = 0
+				send_to_all("END")
+				print(f"[디버그] 게임 종료 -> 메인화면 복귀, END 송신")
 
 		# 골 사운드 재생 상태 확인
 		if goal_sound_playing:
@@ -1563,12 +1565,13 @@ def run_game():
 					draw_neon_text(screen, "SOUND CONFIG", font, YELLOW, (popup_rect.centerx - font.size("SOUND CONFIG")[0] // 2, popup_rect.top + int(HEIGHT * 0.03)), 1)
 					options_text = ["SOUND: ON", "SOUND: OFF", "[ BACK ]"]
 					for idx, text in enumerate(options_text):
+						current_y = popup_rect.top + int(HEIGHT * 0.12) + (idx * int(HEIGHT * 0.06))
 						if idx < 2:
-							target_rect = pygame.Rect(popup_rect.left + int(popup_w * (0.15 if idx == 0 else 0.55)), popup_rect.top + int(HEIGHT * 0.14), int(popup_w * 0.3), int(HEIGHT * 0.06))
+							btn_w, btn_h = int(popup_w * 0.5), int(HEIGHT * 0.05)
+							target_rect = pygame.Rect(popup_rect.centerx - btn_w // 2, current_y, btn_w, btn_h)
 							c = GREEN if popup_sub_index == idx else GRAY
 							draw_fancy_button(screen, target_rect, text, btn_font, c, mouse_pos, popup_sub_index == idx)
 						else:
-							current_y = popup_rect.top + int(HEIGHT * 0.22)
 							txt_s = btn_font.render(text, True, YELLOW if popup_sub_index == idx else WHITE)
 							screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
 				elif popup_type == "COLOR":
@@ -1576,12 +1579,12 @@ def run_game():
 					options_text = [f"P1 COLOR : < {COLOR_NAMES[p1_color_idx]} >", f"P2 COLOR : < {COLOR_NAMES[p2_color_idx]} >", "[ BACK ]"]
 					for idx, text in enumerate(options_text):
 						current_y = popup_rect.top + int(HEIGHT * 0.09) + (idx * int(HEIGHT * 0.05))
-						if idx == 0:
-							pygame.draw.rect(screen, COLOR_OPTIONS[p1_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25), border_radius=4)
-						elif idx == 1:
-							pygame.draw.rect(screen, COLOR_OPTIONS[p2_color_idx], (popup_rect.right - int(popup_w * 0.18), current_y + 5, 25, 25), border_radius=4)
 						txt_s = btn_font.render(text, True, YELLOW if popup_sub_index == idx else WHITE)
-						screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
+						screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
+						if idx == 0:
+							pygame.draw.rect(screen, COLOR_OPTIONS[p1_color_idx], (popup_rect.centerx + txt_s.get_width() // 2 + 10, current_y + 2, 25, 25), border_radius=4)
+						elif idx == 1:
+							pygame.draw.rect(screen, COLOR_OPTIONS[p2_color_idx], (popup_rect.centerx + txt_s.get_width() // 2 + 10, current_y + 2, 25, 25), border_radius=4)
 				elif popup_type == "GAME_CUSTOM":
 					draw_neon_text(screen, "GAME CUSTOM", font, YELLOW, (popup_rect.centerx - font.size("GAME CUSTOM")[0] // 2, popup_rect.top + int(HEIGHT * 0.03)), 1)
 					options_text = ["1. SETTING TIMES", "2. UI THEME", "[ BACK ]"]
@@ -1606,7 +1609,7 @@ def run_game():
 						marker = "* " if idx == time_limit_idx else "  "
 						color_val = NEON_GREEN if idx == time_limit_idx else (YELLOW if popup_sub_index == idx else WHITE)
 						txt_s = btn_font.render(marker + time_text, True, color_val)
-						screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
+						screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
 					
 					# 스크롤 표시
 					if start_idx > 0:
@@ -1623,10 +1626,10 @@ def run_game():
 						marker = "* " if idx == current_theme else "  "
 						color_val = NEON_GREEN if idx == current_theme else (YELLOW if popup_sub_index == idx else WHITE)
 						txt_s = btn_font.render(marker + text, True, color_val)
-						screen.blit(txt_s, (popup_rect.left + int(popup_w * 0.1), current_y))
+						screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, current_y))
 				elif popup_type == "CREATOR":
 					draw_neon_text(screen, "TEAM CREDITS", font, YELLOW, (popup_rect.centerx - font.size("TEAM CREDITS")[0] // 2, popup_rect.top + int(HEIGHT * 0.03)), 1)
-					for idx, line in enumerate(["DEVELOPER: Team Hockey Pong", "HARDWARE: ESP32 Wi-Fi UDP", "GRAPHICS: Pygame Neon Framework"]):
+					for idx, line in enumerate(["DEVELOPER: Team PADDLE MASTERS", "HARDWARE: ESP32 Wi-Fi UDP", "GRAPHICS: Pygame Neon Framework"]):
 						txt_s = btn_font.render(line, True, WHITE)
 						screen.blit(txt_s, (popup_rect.centerx - txt_s.get_width() // 2, popup_rect.top + int(HEIGHT * 0.12) + (idx * 30)))
 					back_text = "[ BACK ]"
