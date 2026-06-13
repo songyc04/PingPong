@@ -1,8 +1,26 @@
 /*
  * ╔══════════════════════════════════════════════════════╗
- * ESP32 핀볼 [P2 보드] - 패들 조이스틱 + LCD (동작 및 인터럽트 픽스)
- * (고정 IP: 192.168.0.154 / Python PC: 192.168.0.167)
+ * ESP32 핀볼 [P1 보드] - LCD 멀티코어 및 카운트다운 완벽 수정본
+ * (고정 IP: 192.168.0.200 / Python PC: 192.168.0.138)
  * ╚══════════════════════════════════════════════════════╝
+ *
+ * [핀 특성 - 실측 기반]
+ * PIN_LR = VRY(35) : 좌우 전담 → 왼쪽=HIGH(4095), 오른쪽=LOW(0)
+ * PIN_UD = VRX(32) : 상하 전담 → 위=LOW(0),        아래=HIGH(4095)
+ * I2C    : SDA=25, SCL=26 (P1 보드 실측 규격)
+ *
+ * [소프트웨어 출력 목표]
+ * X : 왼쪽=0,  오른쪽=4095  (PIN_LR 반전)
+ * Y : 위=0,    아래=4095    (PIN_UD 그대로)
+ * 중립 : X=2048, Y=2048
+ *
+ * [LCD 정책]
+ * 파이썬에서 수신한 메시지만 LCD에 표시 (단, 시스템 명령어인 END, SET, SRT, STOP 제외)
+ * ESP32 자체 상태(WiFi, 캘리브 등)는 시리얼 모니터에만 출력
+ *
+ * [LCD 멀티코어 설계]
+ * - requestLCD() : Core 0 / Core 1 어디서든 호출 가능 (세마포어 버퍼 복사)
+ * - renderLCD()  : 반드시 Core 1(loop())에서만 호출 (I2C 단독 제어)
  */
 
 #include <WiFi.h>
@@ -10,28 +28,30 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-// ─── 네트워크 설정 (P2 고정) ───────────────────────────────
-const char* ssid     = "fusion";
-const char* password = "12345678";
+// 네트워크 설정
+const char* ssid = "사랑채";
+const char* password = "tkfkdco!";
 
 IPAddress local_IP(192, 168, 0, 154);
 IPAddress gateway(192, 168, 0, 1);
 IPAddress subnet(255, 255, 255, 0);
-IPAddress serverIP(192, 168, 0, 175);
+IPAddress serverIP(192, 168, 0, 4);
 
-const int SEND_PORT    = 10002;   // P2 -> Python (조이스틱/제어)
-const int RECEIVE_PORT = 10004;   // Python -> P2 (LCD/상태)
+#define SEND_PORT 10002    // P2 -> Python
+#define RECEIVE_PORT 10004 // Python -> P2
 
 WiFiUDP udp;
 
-// ─── 핀 정의 ────────────────────────────────────────────────
-const int PIN_LR = 33;   // 좌우 (VRY)
-const int PIN_UD = 32;   // 상하 (VRX)
-const int SW     = 14;   // 버튼
+// 핀 정의
+#define PIN_LR 33  // 좌우 (VRY)
+#define PIN_UD 32  // 상하 (VRX)
+#define SW 14      // 버튼
+#define SDA 25     // LCD SDA
+#define SCL 26     // LCD SCL
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-// ─── 조이스틱 상수 ────────────────────────────────────────
+// 조이스틱 상수
 #define JOY_MID          2048
 #define JOY_MAX          4095
 #define JOY_THRESH        800
@@ -40,7 +60,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define FILTER_SIZE         8
 #define JOY_DEADZONE      150
 
-// ─── 축별 독립 이동평균 필터 ──────────────────────────────
+// 축별 독립 이동평균 필터
 struct AxisFilter {
   int  buf[FILTER_SIZE];
   long sum;
@@ -71,33 +91,34 @@ AxisFilter filterUD;
 int RAW_LR_MID = 2048;
 int RAW_UD_MID = 2048;
 
-// ─── 게임 상태 ────────────────────────────────────────────
+// 게임 상태
 enum GameState { STATE_END, STATE_SET, STATE_SRT, STATE_STP };
 volatile GameState gState = STATE_END;
 volatile bool joystickActive = false; 
 volatile bool resetMenuFlags = false;
 
-// ─── 멀티코어 안전 LCD 공유 버퍼 및 세마포어 ─────────────────
+// 멀티코어 안전 LCD 공유 버퍼 및 세마포
 SemaphoreHandle_t lcdSemaphore = NULL;
 volatile bool lcdPending   = false;
-char lcdBuf0[17]  = "                ";
-char lcdBuf1[17]  = "                ";
+char lcdBuf0[17];
+char lcdBuf1[17];
 
-// ─── 버튼 인터럽트 ────────────────────────────────────────
+// 버튼 인터럽트
 volatile bool buttonClicked = false;
 volatile unsigned long lastInterruptTime = 0;
 #define DEBOUNCE_TIME_MS 250
 
-// ─── 타이머 ───────────────────────────────────────────────
+// 타이머
 unsigned long tLastSend = 0;
 unsigned long tLastDebugPrint = 0;
 
-// ─── 마지막 전송값 ────────────────────────────────────────
+// 마지막 전송값
 int lastSentX = JOY_MID;
 int lastSentY = JOY_MID;
 
 TaskHandle_t NetworkRxTask;
 
+// 버튼 인터럽트
 void IRAM_ATTR clickButton() {
   unsigned long now = millis();
   if (now - lastInterruptTime > DEBOUNCE_TIME_MS) {
@@ -106,10 +127,7 @@ void IRAM_ATTR clickButton() {
   }
 }
 
-
-// ════════════════════════════════════════════════════════
-//  축 매핑
-// ════════════════════════════════════════════════════════
+// 축 매핑
 int mapAxis(int raw, int midVal) {
   if (abs(raw - midVal) <= JOY_DEADZONE) return JOY_MID;
   int mapped;
@@ -137,9 +155,8 @@ int getFilteredY() {
   return mapAxis(raw, RAW_UD_MID); 
 }
 
-// ════════════════════════════════════════════════════════
-//  LCD 함수 (세마포어 동기화)
-// ════════════════════════════════════════════════════════
+// LCD 함수
+// Core 0 / Core 1 어디서든 호출 가능한 안전 복사 함수
 void requestLCD(const char* text) {
   if (lcdSemaphore == NULL) return;
 
@@ -182,9 +199,7 @@ void renderLCD() {
   lcd.print(line1);
 }
 
-// ════════════════════════════════════════════════════════
-//  UDP 송신
-// ════════════════════════════════════════════════════════
+// UDP 송신
 void sendUDP(const String& msg) {
   if (WiFi.status() == WL_CONNECTED) {
     udp.beginPacket(serverIP, SEND_PORT);
@@ -199,9 +214,7 @@ void sendUDP(const String& msg) {
   }
 }
 
-// ════════════════════════════════════════════════════════
-//  UDP 수신 태스크 — Core 0
-// ════════════════════════════════════════════════════════
+// UDP 수신 Task - Core 0
 void networkRxLoop(void* pvParameters) {
   char rxBuffer[255];
   for (;;) {
@@ -218,8 +231,9 @@ void networkRxLoop(void* pvParameters) {
         Serial.print(response);
         Serial.println("]");
 
+        // 수신 문자열 제어
         if (response.indexOf(':') != -1 && response.indexOf("END") != -1) {
-          gState         = STATE_END;
+          gState = STATE_END;
           joystickActive = false;
           resetMenuFlags = true;
           char part1[10], part2[10], part3[10];
@@ -228,12 +242,12 @@ void networkRxLoop(void* pvParameters) {
           requestLCD(("You " + String(part3)).c_str());
           vTaskDelay(1 / portTICK_PERIOD_MS);
           continue;
-        } 
-        // ── 상태 핸들링 및 타이밍 동기화 ──────────────────
+        }
         else if(response == "STP") {
           gState = STATE_END;
           joystickActive = false;
           resetMenuFlags = true;
+          vTaskDelay(1 / portTICK_PERIOD_MS);
           requestLCD("READY...");
           continue;
         }
@@ -241,6 +255,7 @@ void networkRxLoop(void* pvParameters) {
           gState = STATE_END;
           joystickActive = false;
           resetMenuFlags = true;
+          vTaskDelay(1 / portTICK_PERIOD_MS);
           requestLCD("P2 CONTROLLER");
           continue;
         }
@@ -248,6 +263,7 @@ void networkRxLoop(void* pvParameters) {
           gState = STATE_SET;
           joystickActive = false;
           resetMenuFlags = true;
+          vTaskDelay(1 / portTICK_PERIOD_MS);
           requestLCD("SETTING");
           continue;          
         }
@@ -255,10 +271,10 @@ void networkRxLoop(void* pvParameters) {
           gState = STATE_SRT;
           joystickActive = true;
           resetMenuFlags = true;
+          vTaskDelay(1 / portTICK_PERIOD_MS);
           requestLCD("MATCH P1 vs P2");
           continue;          
         }
-        
 
         // ── 필터링 조건 (시스템 명령어의 LCD 출력 차단) ──
         if (response == "END" || response == "SET" || response == "SRT" || response == "STOP") {
@@ -271,18 +287,16 @@ void networkRxLoop(void* pvParameters) {
   }
 }
 
-// ════════════════════════════════════════════════════════
-//  setup()
-// ════════════════════════════════════════════════════════
 void setup() {
   Serial.begin(115200);
   delay(100);
 
+  // 바이너리 세마포어 초기화
   lcdSemaphore = xSemaphoreCreateBinary();
   xSemaphoreGive(lcdSemaphore);
 
-  // I2C 핀 레이아웃 (SDA=25, SCL=26 구조)
-  Wire.begin(25, 26);
+  // I2C LCD 초기화
+  Wire.begin(SDA, SCL);
   delay(50);
   lcd.init();
   delay(50);
@@ -290,20 +304,23 @@ void setup() {
   delay(50);
   lcd.clear();
   delay(50);
-
+  
+  // 고정IP 적용 및 네트워크 설정 적용
   WiFi.config(local_IP, gateway, subnet);
   WiFi.begin(ssid, password);
   Serial.println("📡 [WiFi] 연결 시도 중...");
-  while (WiFi.status() != WL_CONNECTED) { delay(200); }
+  while (WiFi.status() != WL_CONNECTED) delay(200);
   Serial.printf("✅ [WiFi] 연결 완료! IP: %s\n", WiFi.localIP().toString().c_str());
 
+  // 하드웨어 및 인터럽트 구성
   analogReadResolution(12);
   pinMode(SW, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(SW), clickButton, FALLING);
 
+  // 포트 활성
   udp.begin(RECEIVE_PORT);
 
-  // ⑥ 조이스틱 정밀 중립 보정 계산
+  // 조이스틱 정밀 중립 보정 계산
   Serial.println("📐 [캘리브] 조이스틱 중립값 측정 중...");
   const int CAL_SAMPLES = 64;
   long sumLR = 0, sumUD = 0;
@@ -316,6 +333,7 @@ void setup() {
   RAW_UD_MID = (int)(sumUD / CAL_SAMPLES);
   Serial.printf("📐 [캘리브] RAW_LR_MID=%d  RAW_UD_MID=%d\n", RAW_LR_MID, RAW_UD_MID);
 
+  // 필터링 파이프라인 구축 및 워밍업
   filterLR.init(PIN_LR);
   filterUD.init(PIN_UD);
   for (int i = 0; i < FILTER_SIZE * 2; i++) {
@@ -324,24 +342,20 @@ void setup() {
     delay(2);
   }
 
+  // Core 0 비동기 수신 스레드 기동
   xTaskCreatePinnedToCore(
-    networkRxLoop, "NetworkRxTask",
-    10000, NULL, 1, &NetworkRxTask, 0
+    networkRxLoop, "NetworkRxTask", 10000, NULL, 1, &NetworkRxTask, 0
   );
   requestLCD("P2 CONTROLLER");
 }
 
-// ════════════════════════════════════════════════════════
-//  loop() — Core 1
-// ════════════════════════════════════════════════════════
 void loop() {
   renderLCD();
 
-  // ── [수정] 인터럽트 최상단 강제 가로채기 및 판정 고도화 ──
+  // 인터럽트 최상단 강제 가로채기 및 판정 고도화
   if (buttonClicked) {
     buttonClicked = false;
     if (gState == STATE_SRT) {
-      Serial.println("🚨 [인터럽트 발생] P2 강제 강등 시도 -> END 전송");
       sendUDP("END\n");
       gState = STATE_END;
       joystickActive = false;
@@ -349,6 +363,7 @@ void loop() {
     }
   }
 
+  // 메뉴 상태 동기화
   static bool lastUpState = false;
   if (resetMenuFlags) {
     lastUpState = false;
@@ -359,10 +374,9 @@ void loop() {
 
   unsigned long now = millis();
 
+  // 아날로그 데이터 수집 및 매핑
   int cx = getFilteredX();
   int cy = getFilteredY();
-
-  // ── 상태별 동작 분기 ──────────────────────────────────────
 
   // 1. 메인 메뉴 대기 화면 모드
   if (gState == STATE_END) {
@@ -372,7 +386,7 @@ void loop() {
     }
     lastUpState = isUp;
   }
-  // 3. 실시간 게임 세션 루프 (STATE_SRT 플래그 동기화 구동 조건 매핑)
+  // 2. 실시간 게임 세션 루프
   else if (gState == STATE_SRT && joystickActive) {
     if (now - tLastSend >= SEND_INTERVAL_MS) {
       if (abs(cx - lastSentX) > CHANGE_THRESH || abs(cy - lastSentY) > CHANGE_THRESH) {

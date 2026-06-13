@@ -28,28 +28,30 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-// ─── 네트워크 설정 (P1 전용 규격) ───────────────────────────
-const char* ssid     = "fusion";
-const char* password = "12345678";
+// 네트워크 설정
+const char* ssid = "사랑채";
+const char* password = "tkfkdco!";
 
 IPAddress local_IP(192, 168, 0, 200);
 IPAddress gateway(192, 168, 0, 1);
 IPAddress subnet(255, 255, 255, 0);
-IPAddress serverIP(192, 168, 0, 175);
+IPAddress serverIP(192, 168, 0, 4);
 
-const int SEND_PORT    = 10001;
-const int RECEIVE_PORT = 10003;
+#define SEND_PORT 10001    // P1 -> Python
+#define RECEIVE_PORT 10003 // Python -> P2
 
 WiFiUDP udp;
 
-// ─── 핀 정의 (P1 전용 규격) ─────────────────────────────────
-const int PIN_LR = 33;   // 좌우 (VRY)
-const int PIN_UD = 32;   // 상하 (VRX)
-const int SW     = 14;   // 버튼
+// 핀 정의
+#define PIN_LR 33  // 좌우 (VRY)
+#define PIN_UD 32  // 상하 (VRX)
+#define SW 14      // 버튼
+#define SDA 25     // LCD SDA
+#define SCL 26     // LCD SCL
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-// ─── 조이스틱 상수 ────────────────────────────────────────
+// 조이스틱 상수
 #define JOY_MID          2048
 #define JOY_MAX          4095
 #define JOY_THRESH        800
@@ -58,7 +60,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define FILTER_SIZE         8
 #define JOY_DEADZONE      150
 
-// ─── 축별 독립 이동평균 필터 ──────────────────────────────
+// 축별 독립 이동평균 필
 struct AxisFilter {
   int  buf[FILTER_SIZE];
   long sum;
@@ -89,7 +91,7 @@ AxisFilter filterUD;
 int RAW_LR_MID = 2048;
 int RAW_UD_MID = 2048;
 
-// ─── 게임 상태 ────────────────────────────────────────────
+// 게임 상태
 enum GameState { STATE_END, STATE_SET, STATE_SRT, STATE_STP};
 volatile GameState gState = STATE_END;
 volatile bool joystickActive = false;
@@ -98,39 +100,35 @@ volatile int setMenuCursor  = 0;
 
 // ─── 멀티코어 안전 LCD 공유 버퍼 및 세마포어 ─────────────────
 SemaphoreHandle_t lcdSemaphore = NULL;
-volatile bool lcdPending   = false;
-char lcdBuf0[17]  = "                ";
-char lcdBuf1[17]  = "                ";
+volatile bool lcdPending = false;
+char lcdBuf0[17];
+char lcdBuf1[17];
 
-// ─── 버튼 인터럽트 ────────────────────────────────────────
+// 버튼 인터럽트
 volatile bool buttonClicked = false;
 volatile unsigned long lastInterruptTime = 0;
 #define DEBOUNCE_TIME_MS 250
 
-// ─── 타이머 ───────────────────────────────────────────────
+// 타이머
 unsigned long tLastSend = 0;
 unsigned long tLastDebugPrint = 0;
 
-// ─── 마지막 전송값 ────────────────────────────────────────
+// 마지막 전송값
 int lastSentX = JOY_MID;
 int lastSentY = JOY_MID;
 
 TaskHandle_t NetworkRxTask;
 
-// ════════════════════════════════════════════════════════
-//  버튼 인터럽트 (IRAM)
-// ════════════════════════════════════════════════════════
+// 버튼 인터럽트
 void IRAM_ATTR clickButton() {
-  unsigned long t = millis();
-  if (t - lastInterruptTime > DEBOUNCE_TIME_MS) {
+  unsigned long now = millis();
+  if (now - lastInterruptTime > DEBOUNCE_TIME_MS) {
     buttonClicked = true;
-    lastInterruptTime = t;
+    lastInterruptTime = now;
   }
 }
 
-// ════════════════════════════════════════════════════════
-//  축 매핑
-// ════════════════════════════════════════════════════════
+// 축 매
 int mapAxis(int raw, int midVal) {
   if (abs(raw - midVal) <= JOY_DEADZONE) return JOY_MID;
   int mapped;
@@ -155,13 +153,10 @@ int getFilteredX() {
 
 int getFilteredY() {
   int raw = filterUD.update(PIN_UD);
-  return mapAxis(raw, RAW_UD_MID); // P1 소프트웨어 타겟 정방향 매핑 완료
+  return mapAxis(raw, RAW_UD_MID);
 }
 
-// ════════════════════════════════════════════════════════
-//  LCD 함수 (P2 구조 이식 - 세마포어 동기화)
-// ════════════════════════════════════════════════════════
-
+// LCD 함수
 // Core 0 / Core 1 어디서든 호출 가능한 안전 복사 함수
 void requestLCD(const char* text) {
   if (lcdSemaphore == NULL) return;
@@ -205,9 +200,7 @@ void renderLCD() {
   lcd.print(line1);
 }
 
-// ════════════════════════════════════════════════════════
-//  UDP 송신
-// ════════════════════════════════════════════════════════
+// UDP 송신
 void sendUDP(const String& msg) {
   if (WiFi.status() == WL_CONNECTED) {
     udp.beginPacket(serverIP, SEND_PORT);
@@ -222,11 +215,7 @@ void sendUDP(const String& msg) {
   }
 }
 
-
-
-// ════════════════════════════════════════════════════════
-//  UDP 수신 태스크 — Core 0 (구조 정렬 완료)
-// ════════════════════════════════════════════════════════
+// UDP 수신 Task - Core 0
 void networkRxLoop(void* pvParameters) {
   char rxBuffer[255];
   for (;;) {
@@ -243,6 +232,7 @@ void networkRxLoop(void* pvParameters) {
         Serial.print(response);
         Serial.println("]");
 
+        // 수신 문자열 제어
         if (response.indexOf(':') != -1 && response.indexOf("END") != -1) {
           gState = STATE_END;
           joystickActive = false;
@@ -275,7 +265,6 @@ void networkRxLoop(void* pvParameters) {
           joystickActive = false;
           setMenuCursor  = 0;
           resetMenuFlags = true;
-          requestLCD("SET");
           vTaskDelay(1 / portTICK_PERIOD_MS);
           requestLCD("SETTING");
           continue;
@@ -283,7 +272,6 @@ void networkRxLoop(void* pvParameters) {
         else if (response == "SRT") {
           gState = STATE_SRT;
           joystickActive = true;
-          requestLCD("SRT");
           vTaskDelay(1 / portTICK_PERIOD_MS);
           requestLCD("MATCH P1 vs P2");
           continue;
@@ -300,19 +288,16 @@ void networkRxLoop(void* pvParameters) {
   }
 }
 
-// ════════════════════════════════════════════════════════
-//  setup() — 최상위 레벨로 포지션 복구 및 라인 정렬 완료
-// ════════════════════════════════════════════════════════
 void setup() {
   Serial.begin(115200);
   delay(100);
 
-  // ① 바이너리 세마포어 초기화
+  // 바이너리 세마포어 초기화
   lcdSemaphore = xSemaphoreCreateBinary();
   xSemaphoreGive(lcdSemaphore);
 
-  // ② I2C LCD 초기화 (SDA=25, SCL=26 구조 반영)
-  Wire.begin(25, 26);
+  // I2C LCD 초기화
+  Wire.begin(SDA, SCL);
   delay(50);
   lcd.init();
   delay(50);
@@ -321,22 +306,22 @@ void setup() {
   lcd.clear();
   delay(50);
 
-  // ③ 고정 IP 및 네트워크 설정 적용
+  // 고정IP 적용 및 네트워크 설정 적용
   WiFi.config(local_IP, gateway, subnet);
   WiFi.begin(ssid, password);
   Serial.println("📡 [WiFi] 연결 시도 중...");
-  while (WiFi.status() != WL_CONNECTED) { delay(200); }
+  while (WiFi.status() != WL_CONNECTED) delay(200);
   Serial.printf("✅ [WiFi] 연결 완료! IP: %s\n", WiFi.localIP().toString().c_str());
 
-  // ④ 하드웨어 및 인터럽트 구성
+  // 하드웨어 및 인터럽트 구성
   analogReadResolution(12);
   pinMode(SW, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(SW), clickButton, FALLING);
 
-  // ⑤ 포트 활성화
+  // 포트 활성화
   udp.begin(RECEIVE_PORT);
 
-  // ⑥ 조이스틱 정밀 중립 보정 계산
+  // 조이스틱 정밀 중립 보정 계산
   Serial.println("📐 [캘리브] 조이스틱 중립값 측정 중...");
   const int CAL_SAMPLES = 64;
   long sumLR = 0, sumUD = 0;
@@ -349,7 +334,7 @@ void setup() {
   RAW_UD_MID = (int)(sumUD / CAL_SAMPLES);
   Serial.printf("📐 [캘리브] RAW_LR_MID=%d  RAW_UD_MID=%d\n", RAW_LR_MID, RAW_UD_MID);
 
-  // ⑦ 필터링 파이프라인 구축 및 워밍업
+  // 필터링 파이프라인 구축 및 워밍업
   filterLR.init(PIN_LR);
   filterUD.init(PIN_UD);
   for (int i = 0; i < FILTER_SIZE * 2; i++) {
@@ -358,21 +343,17 @@ void setup() {
     delay(2);
   }
 
-  // ⑧ Core 0 비동기 수신 스레드 기동
+  // Core 0 비동기 수신 스레드 기동
   xTaskCreatePinnedToCore(
-    networkRxLoop, "NetworkRxTask",
-    10000, NULL, 1, &NetworkRxTask, 0
+    networkRxLoop, "NetworkRxTask", 10000, NULL, 1, &NetworkRxTask, 0
   );
   requestLCD("P1 CONTROLLER");
 }
 
-// ════════════════════════════════════════════════════════
-//  loop() — 최상위 레벨로 포지션 복구 및 라인 정렬 완료
-// ════════════════════════════════════════════════════════
 void loop() {
   renderLCD(); 
   
-  // ── 버튼 처리 ──────────────────────────────────────────
+  // 인터럽트 최상단 강제 가로채기 및 판정 고도화
   if (buttonClicked) {
     buttonClicked = false;
     if (gState == STATE_END || gState == STATE_SRT) {
@@ -380,14 +361,13 @@ void loop() {
       joystickActive = false;
       setMenuCursor  = 0;
       resetMenuFlags = true;
-      requestLCD("");
     }
     else if (gState == STATE_SET) {
       sendUDP("CLK\n");
     }
   }
 
-  // ── 메뉴 상태 관리 동기화 리셋 플래그 ──────────────────────────
+  // 메뉴 상태 동기화
   static bool lastMenuUp   = false;
   static bool lastMenuDown = false;
   static bool lastUpState  = false;
@@ -401,8 +381,6 @@ void loop() {
   // 아날로그 데이터 수집 및 매핑
   int cx = getFilteredX();
   int cy = getFilteredY();
-
-  // ── P1 코어 기능에 기한 동작 분기 ──────────────────────────────
 
   // 1. 메인 메뉴 대기 화면 모드
   if (gState == STATE_END) {
