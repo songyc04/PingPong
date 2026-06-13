@@ -108,6 +108,14 @@ volatile bool buttonClicked = false;
 volatile unsigned long lastInterruptTime = 0;
 #define DEBOUNCE_TIME_MS 250
 
+void IRAM_ATTR clickButton() {
+  unsigned long now = millis();
+  if (now - lastInterruptTime > DEBOUNCE_TIME_MS) {
+    buttonClicked = true;
+    lastInterruptTime = now;
+  }
+}
+
 // 타이머
 unsigned long tLastSend = 0;
 unsigned long tLastDebugPrint = 0;
@@ -117,15 +125,6 @@ int lastSentX = JOY_MID;
 int lastSentY = JOY_MID;
 
 TaskHandle_t NetworkRxTask;
-
-// 버튼 인터럽트
-void IRAM_ATTR clickButton() {
-  unsigned long now = millis();
-  if (now - lastInterruptTime > DEBOUNCE_TIME_MS) {
-    buttonClicked = true;
-    lastInterruptTime = now;
-  }
-}
 
 // 축 매핑
 int mapAxis(int raw, int midVal) {
@@ -143,11 +142,10 @@ int mapAxis(int raw, int midVal) {
 
 int getFilteredX() {
   int raw = filterLR.update(PIN_LR);
-  int val = mapAxis(raw, RAW_LR_MID);
-  int x = JOY_MAX - val; 
-
-  if (abs(x - JOY_MID) <= 100) x = JOY_MID;
-  return x;
+  int val = JOY_MAX - mapAxis(raw, RAW_LR_MID);
+  
+  if (abs(val - JOY_MID) <= 100) val = JOY_MID;
+  return val;
 }
 
 int getFilteredY() {

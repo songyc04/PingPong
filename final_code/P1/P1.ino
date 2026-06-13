@@ -60,7 +60,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define FILTER_SIZE         8
 #define JOY_DEADZONE      150
 
-// 축별 독립 이동평균 필
+// 축별 독립 이동평균 필터
 struct AxisFilter {
   int  buf[FILTER_SIZE];
   long sum;
@@ -68,8 +68,10 @@ struct AxisFilter {
 
   void init(int pin) {
     int v = analogRead(pin);
+    
     sum = 0;
     for (int i = 0; i < FILTER_SIZE; i++) {
+      Serial.println(v);
       buf[i] = v;
       sum += v;
     }
@@ -98,7 +100,7 @@ volatile bool joystickActive = false;
 volatile bool resetMenuFlags = false;
 volatile int setMenuCursor  = 0;
 
-// ─── 멀티코어 안전 LCD 공유 버퍼 및 세마포어 ─────────────────
+// 멀티코어 안전 LCD 공유 버퍼 및 세마포어
 SemaphoreHandle_t lcdSemaphore = NULL;
 volatile bool lcdPending = false;
 char lcdBuf0[17];
@@ -108,6 +110,14 @@ char lcdBuf1[17];
 volatile bool buttonClicked = false;
 volatile unsigned long lastInterruptTime = 0;
 #define DEBOUNCE_TIME_MS 250
+
+void IRAM_ATTR clickButton() {
+  unsigned long now = millis();
+  if (now - lastInterruptTime > DEBOUNCE_TIME_MS) {
+    buttonClicked = true;
+    lastInterruptTime = now;
+  }
+}
 
 // 타이머
 unsigned long tLastSend = 0;
@@ -119,16 +129,7 @@ int lastSentY = JOY_MID;
 
 TaskHandle_t NetworkRxTask;
 
-// 버튼 인터럽트
-void IRAM_ATTR clickButton() {
-  unsigned long now = millis();
-  if (now - lastInterruptTime > DEBOUNCE_TIME_MS) {
-    buttonClicked = true;
-    lastInterruptTime = now;
-  }
-}
-
-// 축 매
+// 축 매핑
 int mapAxis(int raw, int midVal) {
   if (abs(raw - midVal) <= JOY_DEADZONE) return JOY_MID;
   int mapped;
@@ -144,11 +145,10 @@ int mapAxis(int raw, int midVal) {
 
 int getFilteredX() {
   int raw = filterLR.update(PIN_LR);
-  int val = mapAxis(raw, RAW_LR_MID);
-  int x = JOY_MAX - val; 
+  int val = JOY_MAX - mapAxis(raw, RAW_LR_MID);
 
-  if (abs(x - JOY_MID) <= 100) x = JOY_MID;
-  return x;
+  if (abs(val - JOY_MID) <= 100) val = JOY_MID;
+  return val;
 }
 
 int getFilteredY() {
