@@ -394,7 +394,6 @@ void loop() {
   else if (gState == STATE_SET) {
     bool isUp   = (cy < JOY_MID - JOY_THRESH);
     bool isDown = (cy > JOY_MID + JOY_THRESH);
-    (gState  == STATE_STP);
 
     if (isUp && !lastMenuUp) {
       sendUDP("UP\n");
