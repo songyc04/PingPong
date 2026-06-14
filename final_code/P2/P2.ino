@@ -29,8 +29,8 @@
 #include <LiquidCrystal_I2C.h>
 
 // 네트워크 설정
-const char* ssid = "사랑채";
-const char* password = "tkfkdco!";
+const char* ssid = "fusion";
+const char* password = "12345678";
 
 IPAddress local_IP(192, 168, 0, 154);
 IPAddress gateway(192, 168, 0, 1);
