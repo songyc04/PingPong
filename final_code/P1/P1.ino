@@ -276,12 +276,6 @@ void networkRxLoop(void* pvParameters) {
           requestLCD("MATCH P1 vs P2");
           continue;
         }
-
-        // ── 필터링 조건 (시스템 명령어의 LCD 출력 차단) ──
-        if (response == "END" || response == "SET" || response == "SRT" || response == "STOP") {
-          vTaskDelay(1 / portTICK_PERIOD_MS);
-          continue;
-        }
       }
     }
     vTaskDelay(1 / portTICK_PERIOD_MS);
